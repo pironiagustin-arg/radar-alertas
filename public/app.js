@@ -554,6 +554,7 @@ function renderTesis() {
       <div id="thStatus" class="muted" style="margin-top:8px"></div></div>
     <div class="card"><div class="row spread"><h3>Tu perfil de análisis</h3><span class="muted">${PROFILE?.basedOn ? `basado en ${PROFILE.basedOn} tesis · ${new Date(PROFILE.updated).toLocaleDateString('es-AR')}` : ''}</span></div>
       <div class="profile" style="margin-top:8px">${PROFILE?.text ? md(PROFILE.text) : '<span class="muted">Se genera solo cuando subas tu primera tesis. Es lo que la IA usa para pensar como vos.</span>'}</div>
+      ${THESES.length ? `<button class="sm" id="pfRebuild" style="margin-top:10px">${PROFILE?.text ? 'Regenerar perfil' : 'Generar perfil ahora'}</button>` : ''}
       ${PROFILE?.text ? `<details class="collapse"><summary>Corregir el perfil</summary><textarea id="pfNotes" placeholder="Ej: no uso dividendos; para Fast Growers tolero PEG hasta 1.5; vendo si el FCF cae 2 trimestres seguidos">${esc(PROFILE.notes || '')}</textarea><button class="sm primary" id="pfSave" style="margin-top:8px">Guardar y regenerar</button></details>` : ''}</div>
     ${THESES.map((t) => `<div class="card thesis"><div class="row spread"><h3><span class="gtag">${esc(t.ticker || '—')}</span>${esc(t.title || '')}</h3>
       <div class="row"><span class="muted">${new Date(t.created_at).toLocaleDateString('es-AR')}</span><button class="sm danger" data-del="${t.id}">Eliminar</button></div></div>
@@ -572,6 +573,8 @@ function renderTesis() {
     b.disabled = true; const r = await api('/api/thesis?id=' + b.dataset.del, { method: 'DELETE' });
     PROFILE = r.profile; THESES = THESES.filter((x) => x.id !== +b.dataset.del); renderTesis();
   }));
+  const rb = $('#pfRebuild', el);
+  if (rb) rb.onclick = async () => { rb.disabled = true; rb.textContent = 'Generando… (30-60 s)'; try { PROFILE = (await api('/api/thesis', { method: 'POST', body: JSON.stringify({ action: 'rebuild_profile' }) })).profile; } catch (e) { toast(e.message); } renderTesis(); };
   const pf = $('#pfSave', el);
   if (pf) pf.onclick = async () => { pf.disabled = true; pf.textContent = 'Regenerando…'; try { PROFILE = (await api('/api/thesis', { method: 'POST', body: JSON.stringify({ action: 'profile_notes', notes: $('#pfNotes', el).value }) })).profile; } catch (e) { toast(e.message); } renderTesis(); };
 }
