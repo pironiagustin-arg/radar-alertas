@@ -22,14 +22,18 @@
 
 <nav class="tabs">
   <button data-tab="ranking" class="on">Ranking</button>
+  <button data-tab="ia">IA ✦</button>
   <button data-tab="grupos">Grupos</button>
+  <button data-tab="tesis">Tesis</button>
   <button data-tab="alertas">Alertas <span id="alertCount" class="badge"></span></button>
   <button data-tab="ajustes">Ajustes</button>
 </nav>
 
 <main>
   <section id="tab-ranking" class="tab on"></section>
+  <section id="tab-ia" class="tab"></section>
   <section id="tab-grupos" class="tab"></section>
+  <section id="tab-tesis" class="tab"></section>
   <section id="tab-alertas" class="tab"></section>
   <section id="tab-ajustes" class="tab"></section>
 </main>
@@ -37,6 +41,13 @@
 <aside id="drawer" class="drawer"><div class="drawer-in" id="drawerIn"></div></aside>
 <div id="scrim" class="scrim"></div>
 <div id="toast" class="toast"></div>
+<div id="login" class="modal"><div class="modal-in">
+  <h3>Radar de Alertas</h3>
+  <p class="muted">Ingresá tu contraseña (APP_PASSWORD) para activar la IA, Telegram y la sincronización.</p>
+  <input type="password" id="loginPass" placeholder="Contraseña" style="width:100%;margin:8px 0">
+  <div id="loginErr" class="neg" style="font-size:12px;min-height:16px"></div>
+  <div class="row spread"><button class="ghost" id="loginSkip">Usar sin cuenta</button><button class="primary" id="loginBtn">Entrar</button></div>
+</div></div>
 
 <script type="module" src="app.js"></script>
 </body>

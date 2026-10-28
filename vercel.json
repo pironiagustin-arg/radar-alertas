@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/chat.js": { "maxDuration": 120 },
+    "api/thesis.js": { "maxDuration": 180 },
+    "api/telegram.js": { "maxDuration": 120 },
+    "api/scan.js": { "maxDuration": 90 }
+  }
+}

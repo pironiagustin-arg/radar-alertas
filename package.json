@@ -3,7 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "node dev.mjs" },
-  "dependencies": { "yahoo-finance2": "^4.0.5" },
-  "engines": { "node": ">=20" }
+  "scripts": {
+    "dev": "node dev.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "yahoo-finance2": "^4.0.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

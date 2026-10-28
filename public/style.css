@@ -113,3 +113,39 @@ textarea{width:100%;min-height:120px;background:var(--bg);color:var(--txt);borde
 }
 td .chips{min-width:280px}
 @media (max-width:640px){ #asof{display:none} .market{grid-template-columns:repeat(3,1fr);gap:6px} .mcard{padding:8px} .mcard .v{font-size:16px} .mcard .chips{display:none} }
+
+/* ── Login ── */
+.modal{position:fixed;inset:0;background:rgba(5,9,20,.8);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal.on{display:flex}
+.modal-in{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;width:min(380px,100%)}
+.modal-in h3{margin:0 0 6px}
+.tgl{gap:2px!important}
+
+/* ── Chat IA ── */
+.chat{display:flex;flex-direction:column;height:calc(100vh - 270px);min-height:420px;border:1px solid var(--line);border-radius:14px;background:var(--panel);overflow:hidden}
+.msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:min(720px,88%);padding:10px 14px;border-radius:12px;line-height:1.5;word-wrap:break-word}
+.msg.user{align-self:flex-end;background:var(--acc);color:#fff;border-bottom-right-radius:4px}
+.msg.assistant{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg .src{font-size:10.5px;opacity:.6;margin-top:4px}
+.msg p{margin:0 0 6px}.msg p:last-child{margin:0}.msg ul{margin:4px 0;padding-left:18px}
+.msg em{opacity:.7;font-size:12px}
+.msg img{max-width:160px;border-radius:8px;margin:4px 4px 0 0}
+.composer{border-top:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+.composer .row{flex-wrap:nowrap}
+.composer textarea{min-height:44px;max-height:160px;resize:none;flex:1;font:14px Inter,sans-serif}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap}.thumbs:empty{display:none}
+.thumbs div{position:relative}.thumbs img{height:56px;border-radius:6px;border:1px solid var(--line)}
+.thumbs a{position:absolute;top:-6px;right:-6px;background:var(--neg);color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.typing{color:var(--mut);font-size:13px}
+.sugs{display:flex;gap:6px;flex-wrap:wrap}
+.offline-note{display:none}
+body:not(.online) .offline-note{display:block}
+
+/* ── Tesis ── */
+.drop{border:1.5px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--mut);cursor:pointer}
+.drop.over{border-color:var(--acc);color:var(--acc2)}
+.thesis h3{display:flex;gap:8px;align-items:center}
+.profile{white-space:normal;line-height:1.55}
+.profile h1,.profile h2,.profile h3{font-size:14px;margin:12px 0 4px}
+button:disabled{opacity:.45;cursor:not-allowed}

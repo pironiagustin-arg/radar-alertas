@@ -31,16 +31,47 @@ let filterGroup = 'all', openSym = null, unseen = 0;
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s?.groups) {
-      // completa reglas nuevas que no existían cuando se guardó
-      for (const g of s.groups) { const d = defaultRules(); for (const k in d) if (!g.rules[k]) g.rules[k] = d[k]; }
-      s.market = { ...defaultMarket(), ...(s.market || {}) };
-      return s;
-    }
+    if (s?.groups) return normalize(s);
   } catch {}
   return seed();
 }
-const save = () => localStorage.setItem(KEY, JSON.stringify(S));
+function save() {
+  localStorage.setItem(KEY, JSON.stringify(S));
+  clearTimeout(save.h); save.h = setTimeout(pushConfig, 1200); // sincroniza con la base (Telegram y la IA leen de ahí)
+}
+
+// ───────────────────────── Servidor (contraseña + sync) ─────────────────────────
+let PASS = localStorage.getItem(KEY + ':pass') || '';
+let SERVER = { ok: false };
+export async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'x-app-password': PASS, ...(opts.headers || {}) } });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { askPass(true); throw new Error('Contraseña incorrecta'); }
+  if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+  return j;
+}
+async function pushConfig() { if (!SERVER.ok) return; try { await api('/api/config', { method: 'PUT', body: JSON.stringify({ config: S }) }); } catch (e) { toast('No se pudo guardar en la nube: ' + e.message); } }
+function normalize(s) {
+  for (const g of s.groups) { const d = defaultRules(); for (const k in d) if (!g.rules[k]) g.rules[k] = d[k]; }
+  s.market = { ...defaultMarket(), ...(s.market || {}) }; s.telegram ||= { minScore: null };
+  return s;
+}
+function askPass(wrong) {
+  const m = $('#login'); m.classList.add('on'); $('#loginErr').textContent = wrong ? 'Contraseña incorrecta' : '';
+  $('#loginBtn').onclick = async () => { PASS = $('#loginPass').value; localStorage.setItem(KEY + ':pass', PASS); m.classList.remove('on'); await connect(); };
+  $('#loginSkip').onclick = () => { m.classList.remove('on'); toast('Modo local: sin IA, sin Telegram, config solo en este navegador'); };
+}
+async function connect() {
+  if (!PASS) return askPass();
+  try {
+    const { config } = await api('/api/config');
+    SERVER.ok = true;
+    if (config?.groups) { S = normalize(config); localStorage.setItem(KEY, JSON.stringify(S)); }
+    else await pushConfig(); // primera vez: sube la config local
+    document.body.classList.add('online');
+    evaluate(); render(); refresh();
+  } catch (e) { if (!/Contraseña/.test(e.message)) toast('Servidor: ' + e.message); }
+}
 const groupOf = (t) => S.groups.find((g) => g.id === t.group) || S.groups[0];
 
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('on'), 2400); }
@@ -101,7 +132,7 @@ function detectAlerts() {
 
 // ───────────────────────── Render ─────────────────────────
 function render() {
-  renderMarket(); renderRanking(); renderGroups(); renderAlerts(); renderSettings();
+  renderMarket(); renderRanking(); renderGroups(); renderAlerts(); renderSettings(); renderIA(); renderTesis();
   if (openSym) renderDrawer(openSym);
   $('#alertCount').textContent = unseen || '';
 }
@@ -183,9 +214,10 @@ function rulesEditor(rules, { overrides, onChange, results } = {}) {
       row.innerHTML = `<input type="checkbox" ${on ? 'checked' : ''} data-k="on">
         <div class="lbl"><span class="pol ${def.pol > 0 ? 'p' : 'n'}">${def.pol > 0 ? '+' : '−'}</span><span>${def.label}</span>${def.hint ? `<span class="muted">· ${def.hint}</span>` : ''} ${status}</div>
         <div class="params">${Object.keys(def.p).map((k) => `<label>${k}<input type="number" step="any" value="${p[k]}" data-p="${k}"></label>`).join('')}</div>
-        <div class="w params"><label>peso<input type="number" step="1" value="${w}" data-k="w"></label></div>`;
+        <div class="w params"><label>peso<input type="number" step="1" value="${w}" data-k="w"></label>${overrides ? '' : `<label class="tgl" title="Avisar por Telegram cuando se active">📲<input type="checkbox" data-k="tg" ${(base.tg ?? !!def.tg) ? 'checked' : ''}></label>`}</div>`;
       row.querySelectorAll('input').forEach((inp) => inp.addEventListener('change', () => {
         const target = overrides ? (overrides[id] ||= {}) : (rules[id] ||= { on: false, w: def.w, p: { ...def.p } });
+        if (inp.dataset.k === 'tg') { target.tg = inp.checked; onChange?.(); return; }
         if (inp.dataset.k === 'on') target.on = inp.checked;
         else if (inp.dataset.k === 'w') target.w = +inp.value;
         else { target.p = { ...(target.p || {}), [inp.dataset.p]: +inp.value }; }
@@ -259,14 +291,24 @@ function renderAlerts() {
       <div>${esc(a.label)} <span class="muted mono">${esc(a.val)}</span>${a.score != null ? ` <span class="muted">· score ${a.score}</span>` : ''}</div>
       <span class="muted">${new Date(a.t).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span></div>`).join('') || '<div class="muted">Sin alertas todavía.</div>'}</div>`;
   $('#clr', el).onclick = () => { LOG = []; localStorage.setItem(KEY + ':log', '[]'); renderAlerts(); };
+  if (SERVER.ok) api('/api/alerts').then(({ alerts }) => {
+    if (!alerts?.length) return;
+    const box = document.createElement('div');
+    box.innerHTML = `<h4 style="margin:18px 0 6px">Detectadas por el servidor (las que van a Telegram)</h4><div class="feed card">${alerts.map((a) => `<div class="it">
+      <span class="chip ${a.pol > 0 ? 'p' : 'n'}">${a.pol > 0 ? '▲' : '▼'} ${esc(a.sym)}</span>
+      <div>${esc(a.label)} <span class="muted mono">${esc(a.val)}</span></div>
+      <span class="muted">${new Date(a.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span></div>`).join('')}</div>`;
+    el.prepend(box);
+  }).catch(() => {});
 }
 
 function renderSettings() {
   const el = $('#tab-ajustes');
   el.innerHTML = `<div class="grid">
     <div class="card"><h3>Alertas generales de mercado</h3><div class="rules" id="mk"></div></div>
+    <div class="card"><h3>Bot de Telegram</h3><div id="tgBox" class="muted" style="margin-top:8px">${SERVER.ok ? 'Revisando…' : 'Iniciá sesión para configurarlo.'}</div></div>
     <div class="card"><h3>Actualización</h3><div class="row" style="margin-top:10px"><label>Refrescar cada <input type="number" id="rf" value="${S.refreshMin}"> minutos (con la pestaña abierta)</label></div></div>
-    <div class="card"><h3>Backup</h3><p class="muted">La configuración vive en este navegador. Exportala para pasarla a otro dispositivo o guardarla.</p>
+    <div class="card"><h3>Backup</h3><p class="muted">Con sesión iniciada la configuración se guarda en la nube y se sincroniza entre dispositivos. El JSON sirve de backup.</p>
       <div class="row"><button id="exp">Exportar JSON</button><button id="imp">Importar JSON</button><button class="danger" id="rst">Restaurar ejemplo</button></div>
       <textarea id="io" placeholder="Pegá acá un JSON exportado y tocá Importar" style="margin-top:10px"></textarea></div></div>`;
   const mk = $('#mk', el);
@@ -276,13 +318,16 @@ function renderSettings() {
     const row = document.createElement('div'); row.className = 'rule' + (c.on ? '' : ' off');
     row.innerHTML = `<input type="checkbox" ${c.on ? 'checked' : ''}><div class="lbl"><span class="pol ${def.pol > 0 ? 'p' : 'n'}">${def.pol > 0 ? '+' : '−'}</span>${def.label}
       ${res ? (res.met ? `<span class="st ${def.pol > 0 ? 'y' : 'yn'}">SÍ</span>` : '<span class="st no">no</span>') + ` <span class="muted mono">${esc(res.val)}</span>` : ''}</div>
-      <div class="params">${Object.keys(def.p).map((k) => `<label>${k}<input type="number" step="any" data-p="${k}" value="${c.p?.[k] ?? def.p[k]}"></label>`).join('')}</div><div></div>`;
+      <div class="params">${Object.keys(def.p).map((k) => `<label>${k}<input type="number" step="any" data-p="${k}" value="${c.p?.[k] ?? def.p[k]}"></label>`).join('')}</div>
+      <div class="w params"><label class="tgl" title="Avisar por Telegram">📲<input type="checkbox" data-tg ${c.tg !== false ? 'checked' : ''}></label></div>`;
     row.querySelectorAll('input').forEach((inp) => inp.addEventListener('change', () => {
-      if (inp.type === 'checkbox') c.on = inp.checked; else c.p = { ...c.p, [inp.dataset.p]: +inp.value };
+      if (inp.hasAttribute('data-tg')) c.tg = inp.checked;
+      else if (inp.type === 'checkbox') c.on = inp.checked; else c.p = { ...c.p, [inp.dataset.p]: +inp.value };
       save(); evaluate(); renderMarket(); renderSettings();
     }));
     mk.appendChild(row);
   }
+  if (SERVER.ok) loadTg();
   $('#rf', el).onchange = (e) => { S.refreshMin = Math.max(5, +e.target.value || 15); save(); schedule(); };
   $('#exp', el).onclick = () => { $('#io', el).value = JSON.stringify(S, null, 1); navigator.clipboard?.writeText($('#io', el).value); toast('Copiado al portapapeles'); };
   $('#imp', el).onclick = () => { try { const s = JSON.parse($('#io', el).value); if (!s.groups) throw 0; S = s; save(); S = load(); refresh(true); toast('Configuración importada'); } catch { toast('JSON inválido'); } };
@@ -369,4 +414,174 @@ $('#btnNotif').onclick = async () => {
   const p = await Notification.requestPermission(); toast(p === 'granted' ? 'Notificaciones activadas' : 'Notificaciones bloqueadas');
 };
 let timer; function schedule() { clearInterval(timer); timer = setInterval(() => refresh(), S.refreshMin * 60 * 1000); }
-render(); refresh(); schedule();
+render(); refresh(); schedule(); connect();
+
+
+// ───────────────────────── Telegram (Ajustes) ─────────────────────────
+async function loadTg() {
+  const box = $('#tgBox'); if (!box) return;
+  let st; try { st = await api('/api/setup'); } catch (e) { box.textContent = e.message; return; }
+  const ok = (b) => (b ? '<span class="pos">✔</span>' : '<span class="neg">✘</span>');
+  box.innerHTML = `
+    <div>${ok(st.telegramToken)} Token del bot ${st.bot ? `(<b>@${esc(st.bot)}</b>)` : ''}</div>
+    <div>${ok(st.webhook)} Webhook conectado ${st.webhookError ? `<span class="neg">· ${esc(st.webhookError)}</span>` : ''}</div>
+    <div>${ok(st.chatVinculado)} Tu chat vinculado</div>
+    <div>${ok(st.anthropic)} IA (ANTHROPIC_API_KEY)</div>
+    ${st.error ? `<div class="neg">${esc(st.error)}</div>` : ''}
+    <div class="row" style="margin-top:10px"><button class="primary sm" id="tgConnect" ${st.telegramToken ? '' : 'disabled'}>Conectar bot</button>
+      <button class="sm" id="tgScan">Escanear ahora</button>
+      <label>Avisar si un score llega a <input type="number" id="tgMin" value="${S.telegram?.minScore ?? ''}" placeholder="—"></label></div>
+    <ol style="margin:10px 0 0;padding-left:18px;line-height:1.7">
+      ${st.telegramToken ? '' : '<li>En Telegram abrí <b>@BotFather</b> → <code>/newbot</code> → copiá el token. Cargalo en Vercel como <code>TELEGRAM_BOT_TOKEN</code> y redeployá.</li>'}
+      ${st.webhook ? '' : '<li>Tocá <b>Conectar bot</b>.</li>'}
+      ${st.chatVinculado ? '' : `<li>Abrí ${st.bot ? `<a href="https://t.me/${esc(st.bot)}" target="_blank" style="color:var(--acc2)">@${esc(st.bot)}</a>` : 'tu bot'} y mandá <code>/start TU_CONTRASEÑA</code>.</li>`}
+      <li>En cada condición de los grupos, el 📲 define si avisa por Telegram. Se escanea solo cada 30 min en horario de mercado.</li>
+    </ol>`;
+  $('#tgConnect', box).onclick = async () => { try { await api('/api/setup', { method: 'POST' }); toast('Bot conectado'); loadTg(); } catch (e) { toast(e.message); } };
+  $('#tgScan', box).onclick = async () => { try { await pushConfig(); const r = await api('/api/scan', { method: 'POST' }); toast(r.first ? 'Estado inicial guardado' : `${r.fresh || 0} cambio(s), ${r.sent || 0} enviado(s)`); } catch (e) { toast(e.message); } };
+  $('#tgMin', box).onchange = (e) => { S.telegram = { ...(S.telegram || {}), minScore: e.target.value === '' ? null : +e.target.value }; save(); };
+}
+
+// ───────────────────────── Markdown mínimo ─────────────────────────
+function md(t) {
+  const lines = esc(t).split('\n'); let html = '', inList = false;
+  for (let l of lines) {
+    l = l.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>').replace(/_\((.+?)\)_/g, '<em>($1)</em>').replace(/`([^`]+)`/g, '<code>$1</code>');
+    const h = l.match(/^#{1,4}\s+(.*)/); const li = l.match(/^\s*(?:[-*•]|\d+\.)\s+(.*)/);
+    if (li) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${li[1]}</li>`; continue; }
+    if (inList) { html += '</ul>'; inList = false; }
+    if (h) html += `<p><b>${h[1]}</b></p>`; else if (l.trim()) html += `<p>${l}</p>`;
+  }
+  return html + (inList ? '</ul>' : '');
+}
+
+// ───────────────────────── Chat IA ─────────────────────────
+let CHAT = null, PENDING = [], SENDING = false;
+const SUGS = ['¿Qué acción del radar está mejor para comprar hoy según mi marco?', 'Revisá las negativas activas y decime qué vigilar', 'Compará NVDA vs AVGO con mis criterios'];
+
+async function compress(file, max = 1568) {
+  const img = await createImageBitmap(file);
+  const k = Math.min(1, max / Math.max(img.width, img.height));
+  const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const url = c.toDataURL('image/jpeg', 0.85);
+  return { media_type: 'image/jpeg', data: url.split(',')[1], url };
+}
+
+function renderIA() {
+  const el = $('#tab-ia');
+  if (!SERVER.ok) { el.innerHTML = '<div class="empty">La IA necesita que inicies sesión. <button class="primary sm" id="iaLogin">Entrar</button></div>'; $('#iaLogin', el).onclick = () => askPass(); return; }
+  if (el.dataset.ready) return;
+  el.dataset.ready = 1;
+  el.innerHTML = `<div class="chat"><div class="msgs" id="msgs"></div>
+    <div class="composer"><div class="thumbs" id="thumbs"></div>
+      <div class="row"><button class="ghost" id="attach" title="Adjuntar screenshots">📎</button>
+        <textarea id="prompt" placeholder="Preguntá, o pegá/adjuntá screenshots de métricas para que las guarde…" rows="1"></textarea>
+        <button class="primary" id="sendBtn">Enviar</button></div>
+      <input type="file" id="files" accept="image/*" multiple hidden></div></div>`;
+  const ta = $('#prompt', el);
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(160, ta.scrollHeight) + 'px'; });
+  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+  ta.addEventListener('paste', async (e) => { const fs = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/')); if (fs.length) { e.preventDefault(); await addFiles(fs); } });
+  $('#attach', el).onclick = () => $('#files', el).click();
+  $('#files', el).onchange = (e) => addFiles([...e.target.files]);
+  $('#sendBtn', el).onclick = sendChat;
+  const box = $('.chat', el);
+  box.addEventListener('dragover', (e) => e.preventDefault());
+  box.addEventListener('drop', (e) => { e.preventDefault(); addFiles([...e.dataTransfer.files].filter((f) => f.type.startsWith('image/'))); });
+  loadChat();
+}
+
+async function addFiles(files) {
+  for (const f of files.slice(0, 6 - PENDING.length)) PENDING.push(await compress(f));
+  drawThumbs();
+}
+function drawThumbs() {
+  const t = $('#thumbs'); t.innerHTML = PENDING.map((p, i) => `<div><img src="${p.url}"><a data-i="${i}">✕</a></div>`).join('');
+  t.querySelectorAll('a').forEach((a) => (a.onclick = () => { PENDING.splice(+a.dataset.i, 1); drawThumbs(); }));
+}
+
+async function loadChat() {
+  try { CHAT = (await api('/api/chat')).messages; } catch { CHAT = []; }
+  drawMsgs();
+}
+function drawMsgs(extra = '') {
+  const box = $('#msgs'); if (!box) return;
+  box.innerHTML = (CHAT.length ? CHAT.map((m) => `<div class="msg ${m.role}">${m.imgs ? m.imgs.map((u) => `<img src="${u}">`).join('') : ''}${md(m.text)}${m.channel === 'tg' ? '<div class="src">vía Telegram</div>' : ''}</div>`).join('')
+    : `<div class="muted" style="margin:auto;text-align:center;max-width:420px">Soy tu analista interno. Conozco tu radar, tus tesis y las métricas que me pases.<br><br><div class="sugs" style="justify-content:center">${SUGS.map((x) => `<span class="chip f" data-sug="${esc(x)}">${esc(x)}</span>`).join('')}</div></div>`) + extra;
+  box.querySelectorAll('[data-sug]').forEach((c) => (c.onclick = () => { $('#prompt').value = c.dataset.sug; sendChat(); }));
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendChat() {
+  if (SENDING) return;
+  const ta = $('#prompt'); const text = ta.value.trim();
+  if (!text && !PENDING.length) return;
+  const imgs = PENDING; PENDING = []; drawThumbs(); ta.value = ''; ta.style.height = 'auto';
+  CHAT.push({ role: 'user', text: text || '(screenshots)', imgs: imgs.map((i) => i.url) });
+  SENDING = true; drawMsgs('<div class="typing">Analizando…</div>');
+  try {
+    await pushConfig();
+    const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text, images: imgs.map(({ media_type, data }) => ({ media_type, data })) }) });
+    CHAT.push({ role: 'assistant', text: r.text });
+    if (r.tools?.some((t) => t === 'set_target' || t === 'add_tickers')) { const { config } = await api('/api/config'); if (config) { S = normalize(config); localStorage.setItem(KEY, JSON.stringify(S)); refresh(); } }
+  } catch (e) { CHAT.push({ role: 'assistant', text: '⚠️ ' + e.message }); }
+  SENDING = false; drawMsgs();
+}
+
+// ───────────────────────── Tesis ─────────────────────────
+let THESES = null, PROFILE = null;
+function renderTesis() {
+  const el = $('#tab-tesis');
+  if (!SERVER.ok) { el.innerHTML = '<div class="empty">Iniciá sesión para cargar tesis.</div>'; return; }
+  if (THESES == null) { el.innerHTML = '<div class="muted">Cargando…</div>'; api('/api/thesis').then((r) => { THESES = r.theses; PROFILE = r.profile; renderTesis(); }).catch((e) => (el.innerHTML = `<div class="empty">${esc(e.message)}</div>`)); return; }
+  el.innerHTML = `<div class="grid">
+    <div class="card"><h3>Subir tesis</h3><p class="muted">PDF, Markdown o texto. La IA extrae ticker, criterios, umbrales, precio justo y reglas de venta, guarda los números clave y actualiza tu perfil de análisis.</p>
+      <div class="drop" id="drop">Arrastrá archivos acá o tocá para elegir (.pdf, .md, .txt)</div>
+      <input type="file" id="thFile" accept=".pdf,.md,.txt,.html,application/pdf,text/*" multiple hidden>
+      <details class="collapse"><summary>…o pegar el texto</summary><textarea id="thText" placeholder="Pegá tu tesis completa"></textarea><button class="sm primary" id="thSend" style="margin-top:8px">Procesar texto</button></details>
+      <div id="thStatus" class="muted" style="margin-top:8px"></div></div>
+    <div class="card"><div class="row spread"><h3>Tu perfil de análisis</h3><span class="muted">${PROFILE?.basedOn ? `basado en ${PROFILE.basedOn} tesis · ${new Date(PROFILE.updated).toLocaleDateString('es-AR')}` : ''}</span></div>
+      <div class="profile" style="margin-top:8px">${PROFILE?.text ? md(PROFILE.text) : '<span class="muted">Se genera solo cuando subas tu primera tesis. Es lo que la IA usa para pensar como vos.</span>'}</div>
+      ${PROFILE?.text ? `<details class="collapse"><summary>Corregir el perfil</summary><textarea id="pfNotes" placeholder="Ej: no uso dividendos; para Fast Growers tolero PEG hasta 1.5; vendo si el FCF cae 2 trimestres seguidos">${esc(PROFILE.notes || '')}</textarea><button class="sm primary" id="pfSave" style="margin-top:8px">Guardar y regenerar</button></details>` : ''}</div>
+    ${THESES.map((t) => `<div class="card thesis"><div class="row spread"><h3><span class="gtag">${esc(t.ticker || '—')}</span>${esc(t.title || '')}</h3>
+      <div class="row"><span class="muted">${new Date(t.created_at).toLocaleDateString('es-AR')}</span><button class="sm danger" data-del="${t.id}">Eliminar</button></div></div>
+      <p style="margin:10px 0 0">${esc(t.summary || '')}</p>
+      ${t.criteria ? `<details class="collapse"><summary>Criterios extraídos</summary><div style="margin-top:6px">${Object.entries(t.criteria).map(([k, v]) => `<div style="margin:4px 0"><span class="muted">${esc(k.replace(/_/g, ' '))}:</span> ${esc(Array.isArray(v) ? v.join(' · ') : v)}</div>`).join('')}</div></details>` : ''}</div>`).join('')}
+  </div>`;
+  const drop = $('#drop', el), fi = $('#thFile', el);
+  drop.onclick = () => fi.click();
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = () => drop.classList.remove('over');
+  drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); uploadTheses([...e.dataTransfer.files]); };
+  fi.onchange = (e) => uploadTheses([...e.target.files]);
+  $('#thSend', el).onclick = () => { const t = $('#thText', el).value.trim(); if (t) uploadTheses([{ name: 'texto pegado', text: t }]); };
+  el.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
+    if (!confirm('¿Eliminar esta tesis? El perfil se regenera sin ella.')) return;
+    b.disabled = true; const r = await api('/api/thesis?id=' + b.dataset.del, { method: 'DELETE' });
+    PROFILE = r.profile; THESES = THESES.filter((x) => x.id !== +b.dataset.del); renderTesis();
+  }));
+  const pf = $('#pfSave', el);
+  if (pf) pf.onclick = async () => { pf.disabled = true; pf.textContent = 'Regenerando…'; try { PROFILE = (await api('/api/thesis', { method: 'POST', body: JSON.stringify({ action: 'profile_notes', notes: $('#pfNotes', el).value }) })).profile; } catch (e) { toast(e.message); } renderTesis(); };
+}
+
+const toB64 = (file) => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = ko; r.readAsDataURL(file); });
+
+async function uploadTheses(files) {
+  const st = $('#thStatus');
+  for (const f of files) {
+    st.textContent = `Procesando ${f.name}… (puede tardar 30-60 s)`;
+    try {
+      let body;
+      if (f.text && !(f instanceof File)) body = { text: f.text, filename: f.name };
+      else if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+        if (f.size > 4.2e6) throw new Error('PDF de más de 4 MB: comprimilo o pegá el texto');
+        body = { pdf: await toB64(f), filename: f.name };
+      } else body = { text: await f.text(), filename: f.name };
+      const r = await api('/api/thesis', { method: 'POST', body: JSON.stringify(body) });
+      THESES = [{ ...r.thesis, created_at: new Date().toISOString() }, ...THESES]; PROFILE = r.profile;
+      toast(`${r.thesis.ticker || f.name}: tesis cargada, ${r.metrics} métricas guardadas`);
+    } catch (e) { toast(`${f.name}: ${e.message}`); }
+  }
+  renderTesis();
+}

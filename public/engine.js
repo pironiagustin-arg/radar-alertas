@@ -99,17 +99,17 @@ const pct = (x) => (x == null ? '—' : (x > 0 ? '+' : '') + x.toFixed(1) + '%')
 
 export const RULES = {
   // ── Técnicas positivas
-  ema200_touch: { cat: 'tec', pol: 1, w: 3, label: 'Tocando EMA200', p: { banda: 2 }, hint: 'precio a ±banda% de la EMA200',
+  ema200_touch: { cat: 'tec', pol: 1, w: 3, tg: 1, label: 'Tocando EMA200', p: { banda: 2 }, hint: 'precio a ±banda% de la EMA200',
     eval: (t, f, c, p) => ({ met: t.d200 == null ? null : Math.abs(t.d200) <= p.banda, val: pct(t.d200) }) },
-  ema200_cross: { cat: 'tec', pol: 1, w: 3, label: 'Supera EMA200', p: { dias: 5 }, hint: 'cruce alcista en las últimas N ruedas',
+  ema200_cross: { cat: 'tec', pol: 1, w: 3, tg: 1, label: 'Supera EMA200', p: { dias: 5 }, hint: 'cruce alcista en las últimas N ruedas',
     eval: (t, f, c, p) => { const d = t.crossed(t.close, t.ema200, p.dias, 1); return { met: d >= 0, val: d >= 0 ? `hace ${d}d` : pct(t.d200) }; } },
   ema50_touch: { cat: 'tec', pol: 1, w: 1, label: 'Tocando EMA50', p: { banda: 1.5 },
     eval: (t, f, c, p) => ({ met: t.d50 == null ? null : Math.abs(t.d50) <= p.banda, val: pct(t.d50) }) },
   ema50_cross: { cat: 'tec', pol: 1, w: 1, label: 'Supera EMA50', p: { dias: 5 },
     eval: (t, f, c, p) => { const d = t.crossed(t.close, t.ema50, p.dias, 1); return { met: d >= 0, val: d >= 0 ? `hace ${d}d` : pct(t.d50) }; } },
-  rsi_low: { cat: 'tec', pol: 1, w: 2, label: 'RSI bajo', p: { nivel: 35 }, hint: 'RSI(14) por debajo del nivel',
+  rsi_low: { cat: 'tec', pol: 1, w: 2, tg: 1, label: 'RSI bajo', p: { nivel: 35 }, hint: 'RSI(14) por debajo del nivel',
     eval: (t, f, c, p) => ({ met: t.rsiNow < p.nivel, val: f1(t.rsiNow, 0) }) },
-  div_bull: { cat: 'tec', pol: 1, w: 2, label: 'Divergencia alcista', p: { ventana: 60, reciente: 10 }, hint: 'precio mínimo más bajo + RSI mínimo más alto',
+  div_bull: { cat: 'tec', pol: 1, w: 2, tg: 1, label: 'Divergencia alcista', p: { ventana: 60, reciente: 10 }, hint: 'precio mínimo más bajo + RSI mínimo más alto',
     eval: (t, f, c, p) => { const d = t.div('bull', p.ventana, p.reciente); return { met: !!d, val: d ? t.dates[d.b] : '—' }; } },
   macd_up: { cat: 'tec', pol: 1, w: 2, label: 'Cruce MACD alcista', p: { dias: 5 },
     eval: (t, f, c, p) => { const d = t.crossed(t.macd, t.macdSig, p.dias, 1); return { met: d >= 0, val: d >= 0 ? `hace ${d}d` : '—' }; } },
@@ -119,11 +119,11 @@ export const RULES = {
   // ── Técnicas negativas
   rsi_high: { cat: 'tec', pol: -1, w: 2, label: 'RSI sobrecompra', p: { nivel: 70 },
     eval: (t, f, c, p) => ({ met: t.rsiNow > p.nivel, val: f1(t.rsiNow, 0) }) },
-  div_bear: { cat: 'tec', pol: -1, w: 2, label: 'Divergencia bajista', p: { ventana: 60, reciente: 10 },
+  div_bear: { cat: 'tec', pol: -1, w: 2, tg: 1, label: 'Divergencia bajista', p: { ventana: 60, reciente: 10 },
     eval: (t, f, c, p) => { const d = t.div('bear', p.ventana, p.reciente); return { met: !!d, val: d ? t.dates[d.b] : '—' }; } },
-  ema200_lost: { cat: 'tec', pol: -1, w: 3, label: 'Pierde EMA200', p: { dias: 5 },
+  ema200_lost: { cat: 'tec', pol: -1, w: 3, tg: 1, label: 'Pierde EMA200', p: { dias: 5 },
     eval: (t, f, c, p) => { const d = t.crossed(t.close, t.ema200, p.dias, -1); return { met: d >= 0, val: d >= 0 ? `hace ${d}d` : pct(t.d200) }; } },
-  death_cross: { cat: 'tec', pol: -1, w: 2, label: 'Death cross 50/200', p: { dias: 15 },
+  death_cross: { cat: 'tec', pol: -1, w: 2, tg: 1, label: 'Death cross 50/200', p: { dias: 15 },
     eval: (t, f, c, p) => { const d = t.crossed(t.ema50, t.ema200, p.dias, -1); return { met: d >= 0, val: d >= 0 ? `hace ${d}d` : '—' }; } },
   macd_down: { cat: 'tec', pol: -1, w: 1, label: 'Cruce MACD bajista', p: { dias: 5 },
     eval: (t, f, c, p) => { const d = t.crossed(t.macd, t.macdSig, p.dias, -1); return { met: d >= 0, val: d >= 0 ? `hace ${d}d` : '—' }; } },
@@ -143,7 +143,7 @@ export const RULES = {
     eval: (t, f, c, p) => ({ met: f.evEbitda == null ? null : f.evEbitda > 0 && f.evEbitda <= p.max, val: f1(f.evEbitda) }) },
   de: { cat: 'fun', pol: 1, w: 1, label: 'Deuda/Equity ≤', p: { max: 1 },
     eval: (t, f, c, p) => ({ met: f.debtEquity == null ? null : f.debtEquity <= p.max, val: f1(f.debtEquity, 2) + 'x' }) },
-  insider: { cat: 'fun', pol: 1, w: 2, label: 'Compra de insiders', p: { min: 1, dias: 90 }, hint: 'solo compras, últimos N días',
+  insider: { cat: 'fun', pol: 1, w: 2, tg: 1, label: 'Compra de insiders', p: { min: 1, dias: 90 }, hint: 'solo compras, últimos N días',
     eval: (t, f, c, p) => { if (!f.insiderBuys) return { met: null, val: '—' }; const lim = Date.now() - p.dias * 864e5; const b = f.insiderBuys.filter((x) => +new Date(x.date) >= lim); return { met: b.length >= p.min, val: b.length ? `${b.length} compra(s)` : '0' }; } },
   drawdown: { cat: 'fun', pol: 1, w: 2, label: 'Drawdown ≥', p: { min: 20 }, hint: 'caída desde máximo 52 semanas',
     eval: (t, f, c, p) => ({ met: t.dd <= -p.min, val: pct(t.dd) }) },
@@ -151,9 +151,9 @@ export const RULES = {
     eval: (t, f, c, p) => { const e = (f.earnings || []).slice(-p.trimestres); if (!e.length) return { met: null, val: '—' }; return { met: e.every((x) => x.surprise >= p.sorpresa), val: e.map((x) => pct(x.surprise)).join(' · ') }; } },
 
   // ── Fundamentals negativos
-  miss: { cat: 'fun', pol: -1, w: 2, label: 'Earnings bajo estimado', p: {}, hint: 'último trimestre no llegó al estimado',
+  miss: { cat: 'fun', pol: -1, w: 2, tg: 1, label: 'Earnings bajo estimado', p: {}, hint: 'último trimestre no llegó al estimado',
     eval: (t, f) => { const e = (f.earnings || []).at(-1); if (!e) return { met: null, val: '—' }; return { met: e.surprise < 0, val: pct(e.surprise) }; } },
-  eps_rev_down: { cat: 'fun', pol: -1, w: 2, label: 'Recortan EPS estimado', p: { pct: -2 }, hint: 'revisión EPS año en curso, 30 días',
+  eps_rev_down: { cat: 'fun', pol: -1, w: 2, tg: 1, label: 'Recortan EPS estimado', p: { pct: -2 }, hint: 'revisión EPS año en curso, 30 días',
     eval: (t, f, c, p) => ({ met: f.epsRev30 == null ? null : f.epsRev30 <= p.pct, val: pct(f.epsRev30) }) },
   price_ahead: { cat: 'fun', pol: -1, w: 2, label: 'Precio adelantado al EPS', p: { gap: 40 }, hint: 'var. precio 12m − var. EPS YoY ≥ gap (pp)',
     eval: (t, f, c, p) => { if (f.epsYoY == null || t.priceYoY == null) return { met: null, val: '—' }; const g = t.priceYoY - f.epsYoY; return { met: g >= p.gap, val: `${(g > 0 ? '+' : '') + g.toFixed(0)}pp` }; } },
@@ -163,9 +163,9 @@ export const RULES = {
     eval: (t, f, c, p) => { if (!f.nextEarnings) return { met: null, val: '—' }; const d = Math.ceil((+new Date(f.nextEarnings) - Date.now()) / 864e5); return { met: d >= 0 && d <= p.dias, val: d >= 0 ? `en ${d}d` : '—' }; } },
 
   // ── Objetivos personales (venta / promedio por ticker)
-  target_hit: { cat: 'obj', pol: -1, w: 3, label: 'Llegó a objetivo de venta', p: {}, hint: 'alguna métrica tocó tu número de venta',
+  target_hit: { cat: 'obj', pol: -1, w: 3, tg: 1, label: 'Llegó a objetivo de venta', p: {}, hint: 'alguna métrica tocó tu número de venta',
     eval: (t, f, c) => { const hits = (c.targets || []).filter((x) => x.hit); if (!(c.targets || []).some((x) => x.venta != null)) return { met: null, val: 'sin objetivos' }; return { met: hits.length > 0, val: hits.map((x) => x.label).join(', ') || '—' }; } },
-  below_avg: { cat: 'obj', pol: 1, w: 2, label: 'Debajo de su promedio', p: { margen: 10 }, hint: 'métricas ≥ margen% por debajo de tu promedio cargado',
+  below_avg: { cat: 'obj', pol: 1, w: 2, tg: 1, label: 'Debajo de su promedio', p: { margen: 10 }, hint: 'métricas ≥ margen% por debajo de tu promedio cargado',
     eval: (t, f, c, p) => { const ts = (c.targets || []).filter((x) => x.promedio != null && x.cur != null); if (!ts.length) return { met: null, val: 'sin promedios' }; const under = ts.filter((x) => x.dAvg <= -p.margen); return { met: under.length > 0, val: under.map((x) => `${x.label} ${pct(x.dAvg)}`).join(', ') || '—' }; } },
 };
 
@@ -193,7 +193,7 @@ export function evalTargets(t, f, targets = []) {
 // Defaults para un grupo nuevo: todo encendido con pesos sugeridos
 export function defaultRules() {
   const o = {};
-  for (const [id, r] of Object.entries(RULES)) o[id] = { on: true, w: r.w, p: { ...r.p } };
+  for (const [id, r] of Object.entries(RULES)) o[id] = { on: true, w: r.w, p: { ...r.p }, tg: !!r.tg };
   return o;
 }
 
@@ -211,7 +211,7 @@ export function scoreTicker(ticker, group, data, benchData) {
     const on = ov.on ?? g.on; if (!on) continue;
     const w = ov.w ?? g.w; const p = { ...def.p, ...g.p, ...(ov.p || {}) };
     let r; try { r = def.eval(t, f, ctx, p); } catch { r = { met: null, val: 'err' }; }
-    res.push({ id, label: def.label, cat: def.cat, pol: def.pol, w, met: r.met, val: r.val });
+    res.push({ id, label: def.label, cat: def.cat, pol: def.pol, w, met: r.met, val: r.val, tg: g.tg ?? !!def.tg });
     if (r.met == null) continue; // sin dato: no cuenta ni a favor ni en contra
     if (def.pol > 0) { posMax += w; totPos++; if (r.met) { pos += w; metPos++; } }
     else if (r.met) neg += w;
@@ -233,7 +233,7 @@ export const MARKET_RULES = {
 };
 
 export function defaultMarket() {
-  const o = {}; for (const [id, r] of Object.entries(MARKET_RULES)) o[id] = { on: true, p: { ...r.p } }; return o;
+  const o = {}; for (const [id, r] of Object.entries(MARKET_RULES)) o[id] = { on: true, p: { ...r.p }, tg: true }; return o;
 }
 
 export function evalMarket(cfg, spy, vix) {
@@ -243,7 +243,7 @@ export function evalMarket(cfg, spy, vix) {
     spyHigh: Math.max(...spy.prices.close), };
   m.spyDD = (m.spy / m.spyHigh - 1) * 100; // vs máximo de los ~2 años cargados (≈ máximo histórico en tendencia alcista)
   m.rules = Object.entries(MARKET_RULES).filter(([id]) => cfg[id]?.on !== false).map(([id, d]) => {
-    const r = d.eval(m, { ...d.p, ...(cfg[id]?.p || {}) }); return { id, label: d.label, pol: d.pol, ...r };
+    const r = d.eval(m, { ...d.p, ...(cfg[id]?.p || {}) }); return { id, label: d.label, pol: d.pol, tg: cfg[id]?.tg ?? true, ...r };
   });
   return m;
 }
