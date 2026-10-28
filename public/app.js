@@ -1,6 +1,6 @@
 import { FUND_FIELDS, RULES, MARKET_RULES, TARGET_METRICS, defaultRules, defaultMarket, scoreTicker, evalMarket } from './engine.js';
 import DEFAULT_CONFIG from './default-config.js';
-import { PROFILES, applyProfile } from './profiles.js';
+import { PROFILES, COMMON, applyProfile } from './profiles.js';
 
 // ───────────────────────── Estado ─────────────────────────
 const KEY = 'radar-alertas-v2';
@@ -39,7 +39,20 @@ export async function api(path, opts = {}) {
   if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
   return j;
 }
-async function pushConfig() { if (!SERVER.ok) return; try { await api('/api/config', { method: 'PUT', body: JSON.stringify({ config: S }) }); } catch (e) { toast('No se pudo guardar en la nube: ' + e.message); } }
+let BASE_REV = null;
+async function pushConfig() {
+  if (!SERVER.ok) return;
+  try {
+    const r = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-app-password': PASS }, body: JSON.stringify({ config: S, baseRev: BASE_REV }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 409 && j.config) { // otra pestaña/dispositivo guardó algo más nuevo
+      S = normalize(j.config); BASE_REV = j.config.rev; localStorage.setItem(KEY, JSON.stringify(S)); evaluate(); render();
+      return toast('Había una versión más nueva en la nube: la cargué (tu último cambio no se guardó)');
+    }
+    if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+    BASE_REV = j.rev;
+  } catch (e) { toast('No se pudo guardar en la nube: ' + e.message); }
+}
 function normalize(s) {
   for (const g of s.groups) { const d = defaultRules(); for (const k in d) if (!g.rules[k]) g.rules[k] = d[k]; }
   s.market = { ...defaultMarket(), ...(s.market || {}) }; s.telegram ||= { minScore: null };
@@ -55,7 +68,7 @@ async function connect() {
   try {
     const { config } = await api('/api/config');
     SERVER.ok = true;
-    if (config?.groups) { S = normalize(config); localStorage.setItem(KEY, JSON.stringify(S)); }
+    if (config?.groups) { S = normalize(config); BASE_REV = config.rev ?? null; localStorage.setItem(KEY, JSON.stringify(S)); }
     else await pushConfig(); // primera vez: sube la config local
     document.body.classList.add('online');
     evaluate(); render(); refresh();
@@ -209,7 +222,7 @@ function rowHtml(r, i, maxT, maxF) {
 }
 
 // ── Editor de reglas reutilizable (grupo u override de ticker)
-function rulesEditor(rules, { overrides, onChange, results } = {}) {
+function rulesEditor(rules, { overrides, onChange, results, exclude = [] } = {}) {
   const cats = [['tec', 'Técnicas'], ['fun', 'Fundamentals'], ['obj', 'Objetivos propios']];
   const wrap = document.createElement('div'); wrap.className = 'rules';
   for (const [cat, title] of cats) {
@@ -217,7 +230,7 @@ function rulesEditor(rules, { overrides, onChange, results } = {}) {
     // las activas a la vista; las apagadas, plegadas en "métricas disponibles"
     const more = document.createElement('details'); more.className = 'collapse more';
     let nOff = 0;
-    for (const pol of [1, -1]) for (const [id, def] of Object.entries(RULES).filter(([, d]) => d.cat === cat && d.pol === pol)) {
+    for (const pol of [1, -1]) for (const [id, def] of Object.entries(RULES).filter(([rid, d]) => d.cat === cat && d.pol === pol && !exclude.includes(rid))) {
       const base = rules[id] || { on: false, w: def.w, p: { ...def.p } };
       const ov = overrides?.[id] || {};
       const on = ov.on ?? base.on, w = ov.w ?? base.w, p = { ...def.p, ...base.p, ...(ov.p || {}) };
@@ -267,7 +280,7 @@ function renderGroups() {
       <div class="row" style="margin-top:12px"><label class="muted">Tipo de empresa
         <select data-prof><option value="">Personalizado</option>${Object.entries(PROFILES).map(([k, p]) => `<option value="${k}" ${g.profile === k ? 'selected' : ''}>${p.label}</option>`).join('')}</select></label>
         ${g.profile && PROFILES[g.profile] ? `<span class="muted">${PROFILES[g.profile].desc}</span>` : ''}</div>
-      <div class="chips" style="margin-top:8px">${Object.entries(g.rules).filter(([id, r]) => r.on && RULES[id] && RULES[id].cat === 'fun' && PROFILES[g.profile]?.rules[id]).map(([id, r]) => `<span class="chip ${RULES[id].pol > 0 ? 'p' : 'n'}">${RULES[id].label} ${Object.values(r.p || {}).join('–')}</span>`).join('')}</div>
+      <div class="keyed" data-keyed></div>
       <div class="chips" style="margin-top:12px">${tks.map((t) => `<span class="chip">${t.symbol} <a data-rm="${t.symbol}" style="cursor:pointer;color:var(--mut)">✕</a></span>`).join('') || '<span class="muted">Sin acciones todavía</span>'}</div>
       <div class="add"><input placeholder="Agregar tickers: NVDA, AVGO, TSM" data-add><button class="sm primary" data-a="add">Agregar</button></div>`;
     card.querySelectorAll('[data-f]').forEach((inp) => inp.addEventListener('change', () => {
@@ -298,10 +311,27 @@ function renderGroups() {
       S.groups = S.groups.filter((x) => x.id !== g.id); S.tickers.forEach((t) => t.group === g.id && (t.group = S.groups[0].id));
       save(); evaluate(); render();
     };
+    // Métricas propias del grupo: editor compacto
+    const keyed = $('[data-keyed]', card);
+    const keys = keyRules(g);
+    const avail = Object.entries(RULES).filter(([id, d]) => d.cat === 'fun' && !COMMON.includes(id) && !g.rules[id]?.on);
+    keyed.innerHTML = `<h4>Métricas del grupo</h4>
+      ${keys.map(([id, r]) => `<div class="krow"><span class="pol ${RULES[id].pol > 0 ? 'p' : 'n'}">${RULES[id].pol > 0 ? '+' : '−'}</span>
+        <span class="kl">${RULES[id].label.replace(/ [≤≥]$/, '')}</span>
+        <span class="kp">${Object.keys(RULES[id].p).map((k) => `<label>${k === 'max' ? (RULES[id].label.includes('≥') ? '≥' : id === 'rev_decline' ? '<' : RULES[id].pol < 0 ? '>' : '≤') : k === 'min' ? '≥' : k}<input type="number" step="any" value="${r.p?.[k] ?? RULES[id].p[k]}" data-kp="${id}:${k}"></label>`).join(' ')}</span>
+        <label class="muted">peso<input type="number" value="${r.w}" data-kw="${id}"></label>
+        <button class="sm ghost" data-koff="${id}" title="Quitar">✕</button></div>`).join('') || '<div class="muted">Sin métricas propias. Elegí un tipo de empresa o agregá una.</div>'}
+      ${avail.length ? `<div class="row" style="margin-top:6px"><select data-kadd><option value="">+ Agregar métrica…</option>${avail.map(([id, d]) => `<option value="${id}">${d.pol < 0 ? '(−) ' : ''}${d.label}</option>`).join('')}</select></div>` : ''}`;
+    const touched = () => { g.profile = g.profile ? g.profile : null; save(); evaluate(); renderRanking(); };
+    keyed.querySelectorAll('[data-kp]').forEach((i) => (i.onchange = () => { const [id, k] = i.dataset.kp.split(':'); g.rules[id].p = { ...g.rules[id].p, [k]: +i.value }; touched(); }));
+    keyed.querySelectorAll('[data-kw]').forEach((i) => (i.onchange = () => { g.rules[i.dataset.kw].w = +i.value; touched(); }));
+    keyed.querySelectorAll('[data-koff]').forEach((b) => (b.onclick = () => { g.rules[b.dataset.koff].on = false; save(); evaluate(); render(); }));
+    const ka = $('[data-kadd]', keyed);
+    if (ka) ka.onchange = () => { const id = ka.value; if (!id) return; const d = RULES[id]; g.rules[id] = { ...(g.rules[id] || { w: d.w, p: { ...d.p }, tg: !!d.tg }), on: true }; save(); evaluate(); render(); };
+
     const det = document.createElement('details'); det.className = 'collapse';
-    const on = Object.values(g.rules).filter((r) => r.on).length;
-    det.innerHTML = `<summary>Condiciones del grupo (${on} activas)</summary>`;
-    det.appendChild(rulesEditor(g.rules, { onChange: () => { save(); evaluate(); renderRanking(); } }));
+    det.innerHTML = `<summary>Técnicas y señales comunes</summary>`;
+    det.appendChild(rulesEditor(g.rules, { exclude: Object.keys(RULES).filter((id) => RULES[id].cat === 'fun' && !COMMON.includes(id)), onChange: () => { save(); evaluate(); renderRanking(); } }));
     card.appendChild(det); grid.appendChild(card);
   }
 }
@@ -382,47 +412,58 @@ function renderDrawer(sym) {
   if (!r || !tk) { closeDrawer(); return; }
   if (r.error) { el.innerHTML = `<div class="dhead"><h2>${sym}</h2><button class="ghost" id="x">✕</button></div><p class="muted">${esc(r.error)}</p>`; $('#x', el).onclick = closeDrawer; return; }
   const f = r.f || {};
+  const keyIds = keyRules(r.group).map(([id]) => id);
+  const keyRows = keyIds.map((id) => r.rules.find((x) => x.id === id)).filter(Boolean);
+  const atMet = r.rules.filter((x) => x.cat === 'tec' && x.met), comMet = r.rules.filter((x) => x.cat !== 'tec' && x.met && !keyIds.includes(x.id));
+  const cls = (v) => (v > 0 ? 'pos' : v < 0 ? 'neg' : '');
+  const prof = PROFILES[r.group.profile];
   el.innerHTML = `
     <div class="dhead"><div><h2>${sym} <span class="mono" style="font-size:16px">${fmt(r.t.price, 2)}</span></h2>
       <div class="muted">${esc(f.name || DATA.symbols[sym]?.prices?.name || '')} · <span class="gtag" style="border-left-color:${r.group.color}">${esc(r.group.name)}</span> ${r.group.benchmark ? `· vs ${r.group.benchmark}` : ''}</div></div>
       <button class="ghost" id="x">✕</button></div>
     <div class="kpis">
-      <div class="kpi"><div class="k">Score</div><div class="v ${r.score > 0 ? 'pos' : r.score < 0 ? 'neg' : ''}">${r.score}</div></div>
-      <div class="kpi"><div class="k">AT · AF</div><div class="v"><span class="${r.tec.score > 0 ? 'pos' : r.tec.score < 0 ? 'neg' : ''}">${r.tec.score}</span> · <span class="${r.fun.score > 0 ? 'pos' : r.fun.score < 0 ? 'neg' : ''}">${r.fun.score}</span></div></div>
-      <div class="kpi"><div class="k">RSI</div><div class="v">${fmt(r.t.rsiNow, 0)}</div></div>
-      <div class="kpi"><div class="k">Drawdown</div><div class="v">${sgn(r.t.dd)}</div></div>
-      ${(() => {
-        const key = r.rules.filter((x) => x.cat === 'fun' && x.pol > 0 && x.id !== 'drawdown' && (PROFILES[r.group.profile]?.rules[x.id] || ['fpe', 'peg', 'evebitda', 'de'].includes(x.id))).slice(0, 4);
-        return key.map((x) => `<div class="kpi"><div class="k">${esc(x.label.replace(/ [≤≥]$/, ''))}</div><div class="v ${x.met ? 'pos' : ''}" style="font-size:${String(x.val).length > 9 ? 12 : 15}px">${esc(x.val)}</div></div>`).join('');
-      })()}
+      <div class="kpi"><div class="k">Total</div><div class="v ${cls(r.score)}">${r.score}</div></div>
+      <div class="kpi"><div class="k">AT</div><div class="v ${cls(r.tec.score)}">${r.tec.score} <span class="muted">${r.tec.metPos}/${r.tec.totPos}</span></div></div>
+      <div class="kpi"><div class="k">AF</div><div class="v ${cls(r.fun.score)}">${r.fun.score} <span class="muted">${r.fun.metPos}/${r.fun.totPos}</span></div></div>
+      <div class="kpi"><div class="k">RSI · vs EMA200</div><div class="v">${fmt(r.t.rsiNow, 0)} · ${sgn(r.t.d200)}</div></div>
     </div>
     ${chartSvg(r.t)}
-    ${fundTable(sym, r, tk)}
-    <h4 style="margin:18px 0 6px">Objetivos: venta y promedio</h4>
-    <div class="muted">Cargás tu número de venta (dispara alerta negativa al tocarlo) y el promedio de referencia para medir distancia.</div>
-    <table class="tgt"><thead><tr><th>Métrica</th><th>Venta</th><th>Promedio</th><th style="text-align:right">Actual</th><th style="text-align:right">A venta</th><th style="text-align:right">vs prom.</th><th></th></tr></thead>
+    <h4 style="margin:18px 0 4px">Métricas ${prof ? `de ${esc(prof.label.toLowerCase())}` : 'del grupo'}</h4>
+    ${keyRows.length ? `<table class="tgt keym"><thead><tr><th>Métrica</th><th>Valor</th><th>Regla</th><th></th></tr></thead><tbody>${keyRows.map((x) => keyRow(x, sym, tk)).join('')}</tbody></table>
+      <div class="muted" style="margin-top:4px">El valor viene de Yahoo; si no coincide con tu fuente, escribí el tuyo (queda ✎). Porcentajes como número.</div>`
+      : '<div class="muted">Este grupo no tiene métricas propias. Elegí un tipo de empresa en Grupos.</div>'}
+    <h4 style="margin:16px 0 6px">Señales</h4>
+    ${atMet.length ? `<div class="chips"><span class="tag">AT</span>${atMet.map((x) => `<span class="chip ${x.pol > 0 ? 'p' : 'n'}">${esc(x.label)}</span>`).join('')}</div>` : ''}
+    ${comMet.length ? `<div class="chips" style="margin-top:6px"><span class="tag">AF</span>${comMet.map((x) => `<span class="chip ${x.pol > 0 ? 'p' : 'n'}" title="${esc(x.val)}">${esc(x.label)}</span>`).join('')}</div>` : ''}
+    ${!atMet.length && !comMet.length ? '<div class="muted">Sin señales activas.</div>' : ''}
+    ${f.nextEarnings ? `<div class="muted" style="margin-top:6px">Próximo reporte: ${f.nextEarnings}</div>` : ''}
+    <h4 style="margin:16px 0 6px">Objetivos</h4>
+    ${r.targets.length ? `<table class="tgt tgts"><thead><tr><th>Métrica</th><th>Venta</th><th>Promedio</th><th style="text-align:right">Actual</th><th style="text-align:right">A venta</th><th></th></tr></thead>
     <tbody>${r.targets.map((x, i) => `<tr><td>${x.label}</td>
       <td><input type="number" step="any" value="${x.venta ?? ''}" data-i="${i}" data-k="venta"></td>
       <td><input type="number" step="any" value="${x.promedio ?? ''}" data-i="${i}" data-k="promedio"></td>
-      <td class="num">${fmt(x.cur, 2)}</td><td class="num ${x.hit ? 'neg' : ''}">${x.hit ? 'LLEGÓ' : sgn(x.dVenta)}</td><td class="num">${sgn(x.dAvg)}</td>
-      <td><button class="sm ghost" data-del="${i}">✕</button></td></tr>`).join('')}</tbody></table>
-    <div class="add"><select id="tm">${Object.entries(TARGET_METRICS).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select><button class="sm" id="addT">+ Agregar objetivo</button></div>
-    <h4 style="margin:18px 0 6px">Condiciones <span class="muted">(cambios acá aplican solo a ${sym}; el resto hereda de ${esc(r.group.name)})</span></h4>
-    <div id="rulesBox"></div>
-    <div class="row" style="margin-top:8px"><button class="sm" id="resetOv">Volver a las del grupo</button>
-      <label class="muted">Mover a <select id="mv">${S.groups.map((g) => `<option value="${g.id}" ${g.id === r.group.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label></div>
-    ${f.insiderBuys?.length ? `<h4 style="margin:18px 0 6px">Compras de insiders (180d)</h4>${f.insiderBuys.map((b) => `<div class="muted">${b.date} · ${esc(b.who)} (${esc(b.role)}) · ${b.shares?.toLocaleString('es-AR')} acc.</div>`).join('')}` : ''}
-    ${f.earnings?.length ? `<h4 style="margin:18px 0 6px">EPS vs estimado</h4><div class="chips">${f.earnings.map((e) => `<span class="chip ${e.surprise >= 0 ? 'p' : 'n'}">${e.q?.slice(0, 7)} · ${e.actual} vs ${e.est} (${sgn(e.surprise)})</span>`).join('')}</div>` : ''}
-    ${f.nextEarnings ? `<p class="muted">Próximo reporte: ${f.nextEarnings}</p>` : ''}`;
+      <td class="num">${fmt(x.cur, 2)}</td><td class="num ${x.hit ? 'neg' : ''}">${x.hit ? 'LLEGÓ' : sgn(x.dVenta)}</td>
+      <td><button class="sm ghost" data-del="${i}">✕</button></td></tr>`).join('')}</tbody></table>` : ''}
+    <div class="add"><select id="tm">${Object.entries(TARGET_METRICS).map(([k, m]) => `<option value="${k}">${m.label}</option>`).join('')}</select><button class="sm" id="addT">+ Objetivo de venta / promedio</button></div>
+    <details class="collapse"><summary>Más opciones</summary>
+      ${fundTable(sym, r, tk, keyIds)}
+      <h4 style="margin:18px 0 6px">Condiciones solo para ${sym} <span class="muted">(el resto hereda de ${esc(r.group.name)})</span></h4>
+      <div id="rulesBox"></div>
+      <div class="row" style="margin-top:8px"><button class="sm" id="resetOv">Volver a las del grupo</button>
+        <label class="muted">Mover a <select id="mv">${S.groups.map((g) => `<option value="${g.id}" ${g.id === r.group.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label></div>
+      ${f.earnings?.length ? `<h4 style="margin:18px 0 6px">EPS vs estimado</h4><div class="chips">${f.earnings.map((e) => `<span class="chip ${e.surprise >= 0 ? 'p' : 'n'}">${e.q?.slice(0, 7)} · ${e.actual} vs ${e.est} (${sgn(e.surprise)})</span>`).join('')}</div>` : ''}
+      ${f.insiderBuys?.length ? `<h4 style="margin:18px 0 6px">Compras de insiders (180d)</h4>${f.insiderBuys.map((b) => `<div class="muted">${b.date} · ${esc(b.who)} (${esc(b.role)}) · ${b.shares?.toLocaleString('es-AR')} acc.</div>`).join('')}` : ''}
+    </details>`;
   $('#x', el).onclick = closeDrawer;
   el.querySelectorAll('[data-fo]').forEach((inp) => inp.addEventListener('change', () => {
     tk.fundOverrides ||= {};
     const v = inp.value.trim().replace(',', '.');
-    if (v === '') delete tk.fundOverrides[inp.dataset.fo]; else tk.fundOverrides[inp.dataset.fo] = +v;
-    save(); evaluate(); render(); toast(v === '' ? 'Vuelve al dato automático' : 'Valor manual guardado');
+    const auto = DATA.symbols[sym]?.fund?.[inp.dataset.fo];
+    if (v === '' || (auto != null && Math.abs(+v - auto) < 1e-9)) delete tk.fundOverrides[inp.dataset.fo]; else tk.fundOverrides[inp.dataset.fo] = +v;
+    save(); evaluate(); render(); toast(tk.fundOverrides[inp.dataset.fo] == null ? 'Vuelve al dato automático' : 'Valor manual guardado');
   }));
   el.querySelectorAll('[data-foclr]').forEach((b) => (b.onclick = () => { delete tk.fundOverrides[b.dataset.foclr]; save(); evaluate(); render(); }));
-  el.querySelectorAll('.tgt:not(.fund) input').forEach((inp) => inp.addEventListener('change', () => {
+  el.querySelectorAll('.tgts input').forEach((inp) => inp.addEventListener('change', () => {
     const v = inp.value === '' ? null : +inp.value; tk.targets[+inp.dataset.i][inp.dataset.k] = v; save(); evaluate(); render();
   }));
   el.querySelectorAll('[data-del]').forEach((b) => (b.onclick = () => { tk.targets.splice(+b.dataset.del, 1); save(); evaluate(); render(); }));
@@ -431,6 +472,33 @@ function renderDrawer(sym) {
   $('#rulesBox', el).appendChild(rulesEditor(r.group.rules, { overrides: tk.overrides, results: r.rules, onChange: () => { save(); evaluate(); renderRanking(); } }));
   $('#resetOv', el).onclick = () => { tk.overrides = {}; save(); evaluate(); render(); };
   $('#mv', el).onchange = (e) => { tk.group = e.target.value; save(); refresh(); };
+}
+
+// Métricas propias del grupo = fundamentales activas que no son de las "comunes"
+function keyRules(g) {
+  return Object.entries(g.rules || {}).filter(([id, r]) => r.on && RULES[id] && RULES[id].cat === 'fun' && !COMMON.includes(id))
+    .sort(([a], [b]) => RULES[b].pol - RULES[a].pol || (g.rules[b].w ?? 0) - (g.rules[a].w ?? 0));
+}
+function ruleText(id, p) {
+  const d = RULES[id]; const u = /yield|payout|efficiency|margin|growth|roe|drawdown|div|rule40|rev|eps/.test(id) && id !== 'rule40' ? '%' : '';
+  if (p.min != null && p.max != null) return `${p.min}–${p.max}${u}`;
+  if (id === 'div_vs_avg') return 'yield actual ≥ este';
+  if (id === 'rev_decline') return '< 0%';
+  const op = /[≤≥]/.exec(d.label)?.[0] || (p.max != null ? (d.pol < 0 ? '>' : '≤') : '≥');
+  const v = p.max ?? p.min ?? p.pct;
+  return v != null ? `${op} ${v}${u}` : '';
+}
+function keyRow(x, sym, tk) {
+  const field = RULE_FIELD[x.id];
+  const g = S.groups.find((gg) => gg.id === tk.group) || S.groups[0];
+  const p = { ...RULES[x.id].p, ...(g.rules[x.id]?.p || {}), ...(tk.overrides?.[x.id]?.p || {}) };
+  const auto = DATA.symbols[sym]?.fund?.[field], man = tk.fundOverrides?.[field];
+  const cur = man ?? auto;
+  const st = x.met == null ? '<span class="st nd">s/d</span>' : x.met ? `<span class="st ${x.pol > 0 ? 'y' : 'yn'}">${x.pol > 0 ? '✔' : '⚠'}</span>` : `<span class="st no">${x.pol > 0 ? '✘' : '–'}</span>`;
+  const label = x.id === 'div_vs_avg' ? 'Yield promedio 5 años' : x.label.replace(/ [≤≥]$/, '');
+  return `<tr${man != null ? ' class="manual"' : ''}><td>${esc(label)}${man != null ? ' <span title="Valor tuyo">✎</span>' : ''}</td>
+    <td>${field ? `<input type="text" inputmode="decimal" data-fo="${field}" value="${cur == null ? '' : +(+cur).toFixed(2)}" placeholder="cargar">` : `<span class="mono">${esc(x.val)}</span>`}${man != null ? `<button class="sm ghost" data-foclr="${field}" title="Volver al dato de Yahoo${auto != null ? ' (' + (+auto).toFixed(2) + ')' : ''}">↺</button>` : ''}</td>
+    <td class="muted">${esc(ruleText(x.id, p))}</td><td>${st}</td></tr>`;
 }
 
 // ───────────────────────── Arranque ─────────────────────────
@@ -557,7 +625,7 @@ async function sendChat() {
     await pushConfig();
     const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text, images: imgs.map(({ media_type, data }) => ({ media_type, data })) }) });
     CHAT.push({ role: 'assistant', text: r.text });
-    if (r.tools?.some((t) => t === 'set_target' || t === 'add_tickers')) { const { config } = await api('/api/config'); if (config) { S = normalize(config); localStorage.setItem(KEY, JSON.stringify(S)); refresh(); } }
+    if (r.tools?.some((t) => t === 'set_target' || t === 'add_tickers')) { const { config } = await api('/api/config'); if (config) { S = normalize(config); BASE_REV = config.rev ?? null; localStorage.setItem(KEY, JSON.stringify(S)); refresh(); } }
   } catch (e) { CHAT.push({ role: 'assistant', text: '⚠️ ' + e.message }); }
   SENDING = false; drawMsgs();
 }
@@ -660,23 +728,18 @@ async function uploadTheses(files) {
 // qué campo usa cada regla (para mostrar primero las relevantes del grupo)
 const RULE_FIELD = { fpe: 'forwardPE', fpe_high: 'forwardPE', peg: 'peg', evebitda: 'evEbitda', de: 'debtEquity', div_range: 'divYield', div_vs_avg: 'divYield5y', payout_range: 'payout', payout_high: 'payout', efficiency: 'efficiency', roe: 'roe', pb: 'pb', op_margin: 'opMargin', gross_margin: 'grossMargin', rev_growth: 'revGrowth', rev_decline: 'revGrowth', fcf_yield: 'fcfYield', debt_ebitda: 'debtEbitda', ev_sales: 'evSales', rule40: 'rule40', eps_rev_up: 'epsRev90', eps_rev_down: 'epsRev30', eps_gap: 'epsYoY', price_ahead: 'epsYoY' };
 
-function fundTable(sym, r, tk) {
+function fundTable(sym, r, tk, keyIds = []) {
   const auto = DATA.symbols[sym]?.fund || {};
   const man = tk.fundOverrides || {};
-  const used = new Set(r.rules.filter((x) => x.cat === 'fun').map((x) => RULE_FIELD[x.id]).filter(Boolean));
-  if (used.has('divYield5y')) used.add('divYield');
+  const skip = new Set(keyIds.map((id) => RULE_FIELD[id]).filter(Boolean));
   const row = ([k, label, unit]) => {
     const a = auto[k], m = man[k];
     const fa = a == null ? '—' : (+a).toFixed(unit === '%' ? 1 : 2) + (unit === '%' ? '%' : unit);
-    return `<tr${m != null ? ' class="manual"' : ''}><td>${label}${m != null ? ' <span title="Valor tuyo">✎</span>' : ''}</td>
-      <td class="num muted">${fa}</td>
-      <td><input type="text" inputmode="decimal" data-fo="${k}" value="${m ?? ''}" placeholder="${a == null ? 'cargar' : 'igual'}"></td>
-      <td>${m != null ? `<button class="sm ghost" data-foclr="${k}" title="Volver al automático">↺</button>` : ''}</td></tr>`;
+    return `<tr${m != null ? ' class="manual"' : ''}><td>${label}${m != null ? ' ✎' : ''}</td><td class="num muted">${fa}</td>
+      <td><input type="text" inputmode="decimal" data-fo="${k}" value="${m ?? ''}" placeholder="igual"></td>
+      <td>${m != null ? `<button class="sm ghost" data-foclr="${k}">↺</button>` : ''}</td></tr>`;
   };
-  const main = FUND_FIELDS.filter(([k]) => used.has(k)), rest = FUND_FIELDS.filter(([k]) => !used.has(k));
-  const head = '<thead><tr><th>Métrica</th><th style="text-align:right">Automático</th><th>Tu valor</th><th></th></tr></thead>';
-  return `<h4 style="margin:18px 0 6px">Métricas fundamentales</h4>
-    <div class="muted">Automático = Yahoo Finance (FCF y efficiency calculados de los estados contables). Si un dato no coincide con tu fuente, cargá el tuyo: pisa al automático en el ranking y en los avisos. Porcentajes como número (45 = 45%).</div>
-    <table class="tgt fund">${head}<tbody>${main.map(row).join('')}</tbody></table>
-    <details class="collapse"><summary>Otras métricas (${rest.length})</summary><table class="tgt fund">${head}<tbody>${rest.map(row).join('')}</tbody></table></details>`;
+  return `<h4 style="margin:14px 0 6px">Otras métricas (no puntúan en este grupo)</h4>
+    <table class="tgt fund"><thead><tr><th>Métrica</th><th style="text-align:right">Yahoo</th><th>Tu valor</th><th></th></tr></thead>
+    <tbody>${FUND_FIELDS.filter(([k]) => !skip.has(k)).map(row).join('')}</tbody></table>`;
 }

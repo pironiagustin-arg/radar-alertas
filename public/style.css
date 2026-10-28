@@ -157,3 +157,13 @@ th.sorted{color:var(--acc2)}
 .rules .more .rule{opacity:.6}
 .fund tr.manual td:first-child{color:var(--acc2)}
 .fund input{width:90px}
+.keyed h4{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+.krow{display:grid;grid-template-columns:18px minmax(140px,1fr) auto auto 30px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--line)}
+.krow .pol{font:700 11px var(--mono);text-align:center;border-radius:4px}
+.krow .pol.p{background:rgba(34,197,94,.15);color:var(--pos)}.krow .pol.n{background:rgba(239,68,68,.15);color:var(--neg)}
+.krow label{font-size:12px;display:inline-flex;align-items:center;gap:4px}
+.krow input{width:58px}
+.keym td{padding:7px 6px}.keym input{width:84px}
+.keym tr.manual td:first-child{color:var(--acc2)}
+.tgts input{width:72px}
+@media (max-width:640px){.krow{grid-template-columns:18px 1fr 30px}.krow .kp,.krow>label{grid-column:2}}
