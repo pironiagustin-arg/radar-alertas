@@ -1,0 +1,9 @@
+{
+  "name": "radar-alertas",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "node dev.mjs" },
+  "dependencies": { "yahoo-finance2": "^4.0.5" },
+  "engines": { "node": ">=20" }
+}

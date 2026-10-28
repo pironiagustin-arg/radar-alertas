@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Radar de Alertas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span>Radar de Alertas</div>
+  <div class="top-r">
+    <span id="asof" class="muted"></span>
+    <button id="btnNotif" class="ghost" title="Notificaciones del navegador">🔔</button>
+    <button id="btnRefresh" class="primary">Actualizar</button>
+  </div>
+</header>
+
+<section id="market" class="market"></section>
+
+<nav class="tabs">
+  <button data-tab="ranking" class="on">Ranking</button>
+  <button data-tab="grupos">Grupos</button>
+  <button data-tab="alertas">Alertas <span id="alertCount" class="badge"></span></button>
+  <button data-tab="ajustes">Ajustes</button>
+</nav>
+
+<main>
+  <section id="tab-ranking" class="tab on"></section>
+  <section id="tab-grupos" class="tab"></section>
+  <section id="tab-alertas" class="tab"></section>
+  <section id="tab-ajustes" class="tab"></section>
+</main>
+
+<aside id="drawer" class="drawer"><div class="drawer-in" id="drawerIn"></div></aside>
+<div id="scrim" class="scrim"></div>
+<div id="toast" class="toast"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
