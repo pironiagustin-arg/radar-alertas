@@ -1,0 +1,67 @@
+// Perfiles sectoriales: qué métricas fundamentales mira cada tipo de empresa.
+// Las técnicas no se tocan. Las fundamentales que no están en el perfil (ni en COMMON) se apagan.
+import { RULES } from './engine.js';
+
+// Siempre activas: sorpresas de earnings, revisiones, insiders, precio vs EPS y tus objetivos
+export const COMMON = ['beat', 'miss', 'eps_rev_down', 'insider', 'earnings_soon', 'eps_gap', 'price_ahead', 'drawdown', 'target_hit', 'below_avg'];
+
+export const PROFILES = {
+  defensiva: {
+    label: 'Defensiva / dividendos', desc: 'Rol: renta y estabilidad. Busca yield alto y sostenible, y precio atrasado vs su yield histórico.',
+    rules: { div_range: { w: 3, p: { min: 2, max: 7 } }, div_vs_avg: { w: 3, p: { margen: 0 } }, payout_range: { w: 2, p: { min: 60, max: 75 } }, payout_high: { w: 2, p: { max: 90 } }, fpe: { w: 2, p: { max: 22 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 1, p: { max: 0 } }, drawdown: { w: 2, p: { min: 15 } } },
+  },
+  banco: {
+    label: 'Banco / financiera', desc: 'Rol: valor cíclico. Eficiencia, rentabilidad sobre patrimonio y precio vs libros.',
+    rules: { efficiency: { w: 3, p: { max: 60 } }, roe: { w: 2, p: { min: 12 } }, pb: { w: 2, p: { max: 2 } }, fpe: { w: 2, p: { max: 14 } }, div_vs_avg: { w: 1, p: { margen: 0 } }, fpe_high: { w: 1, p: { max: 22 } } },
+  },
+  pagos: {
+    label: 'Redes de pago', desc: 'Rol: compounder de calidad. Márgenes altísimos, crecimiento estable y caja.',
+    rules: { op_margin: { w: 2, p: { min: 40 } }, rev_growth: { w: 2, p: { min: 10 } }, fcf_yield: { w: 2, p: { min: 3 } }, peg: { w: 2, p: { max: 2 } }, fpe: { w: 2, p: { max: 28 } }, fpe_high: { w: 1, p: { max: 40 } }, rev_decline: { w: 2, p: { max: 0 } } },
+  },
+  energia: {
+    label: 'Energía / utilities', desc: 'Rol: demanda eléctrica de la IA. Apalancamiento controlado, EV/EBITDA y crecimiento.',
+    rules: { debt_ebitda: { w: 2, p: { max: 3.5 } }, evebitda: { w: 2, p: { max: 15 } }, rev_growth: { w: 2, p: { min: 10 } }, fcf_yield: { w: 1, p: { min: 3 } }, peg: { w: 2, p: { max: 1.5 } }, fpe: { w: 1, p: { max: 25 } }, rev_decline: { w: 2, p: { max: 0 } } },
+  },
+  plataforma: {
+    label: 'Plataforma / contenido', desc: 'Rol: crecimiento rentable. Ventas creciendo, margen operativo en expansión y caja.',
+    rules: { rev_growth: { w: 2, p: { min: 15 } }, op_margin: { w: 2, p: { min: 15 } }, fcf_yield: { w: 2, p: { min: 3 } }, peg: { w: 2, p: { max: 1.5 } }, fpe: { w: 1, p: { max: 30 } }, fpe_high: { w: 1, p: { max: 60 } }, rev_decline: { w: 2, p: { max: 0 } } },
+  },
+  salud: {
+    label: 'Salud', desc: 'Rol: defensiva con crecimiento. Valuación, caja y yield vs su historia.',
+    rules: { fpe: { w: 2, p: { max: 20 } }, peg: { w: 2, p: { max: 1.5 } }, fcf_yield: { w: 2, p: { min: 4 } }, div_vs_avg: { w: 2, p: { margen: 0 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 2, p: { max: 0 } } },
+  },
+  industrial: {
+    label: 'Industrial', desc: 'Rol: cíclica de calidad. EV/EBITDA, márgenes, caja y deuda.',
+    rules: { evebitda: { w: 2, p: { max: 18 } }, op_margin: { w: 2, p: { min: 12 } }, rev_growth: { w: 1, p: { min: 5 } }, fcf_yield: { w: 2, p: { min: 3 } }, debt_ebitda: { w: 1, p: { max: 3 } }, fpe: { w: 1, p: { max: 25 } }, fpe_high: { w: 1, p: { max: 45 } } },
+  },
+  megacap: {
+    label: 'Mega cap tech', desc: 'Rol: núcleo de crecimiento. PEG, márgenes, crecimiento y revisiones al alza.',
+    rules: { peg: { w: 2, p: { max: 1.5 } }, fpe: { w: 2, p: { max: 30 } }, rev_growth: { w: 2, p: { min: 10 } }, op_margin: { w: 2, p: { min: 25 } }, fcf_yield: { w: 1, p: { min: 2.5 } }, eps_rev_up: { w: 1, p: { pct: 2 } }, fpe_high: { w: 1, p: { max: 50 } } },
+  },
+  semis: {
+    label: 'Semiconductores', desc: 'Rol: ciclo de IA. PEG, margen bruto (poder de precio) y revisiones de EPS.',
+    rules: { peg: { w: 3, p: { max: 1.2 } }, fpe: { w: 2, p: { max: 30 } }, gross_margin: { w: 2, p: { min: 45 } }, rev_growth: { w: 2, p: { min: 15 } }, eps_rev_up: { w: 2, p: { pct: 2 } }, fpe_high: { w: 1, p: { max: 50 } } },
+  },
+  software: {
+    label: 'Software', desc: 'Rol: alto crecimiento. Regla del 40, EV/Ventas y margen bruto (el P/E suele no aplicar).',
+    rules: { rule40: { w: 3, p: { min: 40 } }, ev_sales: { w: 2, p: { max: 15 } }, rev_growth: { w: 2, p: { min: 20 } }, gross_margin: { w: 1, p: { min: 70 } }, peg: { w: 2, p: { max: 1.5 } }, fpe_high: { w: 1, p: { max: 80 } }, rev_decline: { w: 2, p: { max: 0 } } },
+  },
+  fintech: {
+    label: 'Fintech / Fast Grower', desc: 'Rol: crecimiento alto. ROE, ventas, PEG y eficiencia.',
+    rules: { roe: { w: 2, p: { min: 20 } }, rev_growth: { w: 2, p: { min: 25 } }, peg: { w: 3, p: { max: 1 } }, efficiency: { w: 2, p: { max: 35 } }, fpe: { w: 1, p: { max: 30 } }, fpe_high: { w: 1, p: { max: 55 } } },
+  },
+};
+
+// Aplica un perfil a las reglas de un grupo (muta y devuelve rules)
+export function applyProfile(rules, key) {
+  const prof = PROFILES[key]; if (!prof) return rules;
+  for (const [id, def] of Object.entries(RULES)) {
+    if (def.cat === 'tec') continue;
+    const r = (rules[id] ||= { on: false, w: def.w, p: { ...def.p }, tg: !!def.tg });
+    const pr = prof.rules[id];
+    if (pr) { r.on = true; r.w = pr.w; r.p = { ...def.p, ...pr.p }; }
+    else if (COMMON.includes(id)) { r.on = true; }
+    else r.on = false;
+  }
+  return rules;
+}

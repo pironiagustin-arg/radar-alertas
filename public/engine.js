@@ -96,6 +96,11 @@ export function technicals(p, benchP) {
 // eval(t, f, ctx, params) → { met: bool|null (null = sin dato), val: texto }
 const f1 = (x, d = 1) => (x == null || !isFinite(x) ? '—' : x.toFixed(d));
 const pct = (x) => (x == null ? '—' : (x > 0 ? '+' : '') + x.toFixed(1) + '%');
+const clamp = (x) => Math.max(0, Math.min(1, x));
+// rango "cuanto más mejor": en el mínimo suma la mitad del peso, en el máximo el peso completo
+const rangeUp = (v, min, max, fmt) => (v == null ? { met: null, val: '—' } : { met: v >= min && v <= max, val: fmt(v), frac: v >= min && v <= max ? 0.5 + 0.5 * clamp((v - min) / ((max - min) || 1)) : 0 });
+// tope "cuanto menos mejor": justo en el tope suma la mitad, en la mitad del tope suma completo
+const rangeDown = (v, max, fmt) => (v == null || v <= 0 ? { met: null, val: v == null ? '—' : fmt(v) } : { met: v <= max, val: fmt(v), frac: v <= max ? 0.5 + 0.5 * clamp((max - v) / (max / 2)) : 0 });
 
 export const RULES = {
   // ── Técnicas positivas
@@ -150,6 +155,40 @@ export const RULES = {
   beat: { cat: 'fun', pol: 1, w: 2, label: 'Earnings > estimado', p: { sorpresa: 0, trimestres: 1 }, hint: 'últimos N trimestres superan por ≥ sorpresa%',
     eval: (t, f, c, p) => { const e = (f.earnings || []).slice(-p.trimestres); if (!e.length) return { met: null, val: '—' }; return { met: e.every((x) => x.surprise >= p.sorpresa), val: e.map((x) => pct(x.surprise)).join(' · ') }; } },
 
+  // ── Métricas sectoriales (se activan por grupo; apagadas por defecto) ──
+  div_range: { cat: 'fun', pol: 1, w: 3, off: 1, label: 'Dividend yield en rango', p: { min: 2, max: 7 }, hint: 'cuanto más alto dentro del rango, más suma',
+    eval: (t, f, c, p) => rangeUp(f.divYield, p.min, p.max, (x) => x.toFixed(2) + '%') },
+  div_vs_avg: { cat: 'fun', pol: 1, w: 3, off: 1, label: 'Yield sobre su promedio 5a', p: { margen: 0 }, hint: 'yield actual vs promedio 5 años: precio atrasado vs su historia',
+    eval: (t, f, c, p) => { if (!f.divYield || !f.divYield5y) return { met: null, val: '—' }; const d = (f.divYield / f.divYield5y - 1) * 100; return { met: d >= p.margen, val: `${f.divYield.toFixed(2)}% vs ${f.divYield5y.toFixed(2)}%`, frac: d >= p.margen ? clamp(0.5 + d / 40) : 0 }; } },
+  payout_range: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'Payout en rango', p: { min: 60, max: 75 }, hint: 'dividendo cubierto sin descuidar la reinversión',
+    eval: (t, f, c, p) => (f.payout == null ? { met: null, val: '—' } : { met: f.payout >= p.min && f.payout <= p.max, val: f.payout.toFixed(0) + '%' }) },
+  efficiency: { cat: 'fun', pol: 1, w: 3, off: 1, label: 'Efficiency ratio ≤', p: { max: 60 }, hint: 'gastos / ingresos: cuanto más bajo, mejor',
+    eval: (t, f, c, p) => rangeDown(f.efficiency, p.max, (x) => x.toFixed(1) + '%') },
+  roe: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'ROE ≥', p: { min: 15 },
+    eval: (t, f, c, p) => (f.roe == null ? { met: null, val: '—' } : { met: f.roe >= p.min, val: f.roe.toFixed(1) + '%' }) },
+  pb: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'P/Book ≤', p: { max: 2 },
+    eval: (t, f, c, p) => rangeDown(f.pb, p.max, (x) => x.toFixed(2) + 'x') },
+  op_margin: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'Margen operativo ≥', p: { min: 20 },
+    eval: (t, f, c, p) => (f.opMargin == null ? { met: null, val: '—' } : { met: f.opMargin >= p.min, val: f.opMargin.toFixed(1) + '%' }) },
+  gross_margin: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'Margen bruto ≥', p: { min: 50 },
+    eval: (t, f, c, p) => (f.grossMargin == null ? { met: null, val: '—' } : { met: f.grossMargin >= p.min, val: f.grossMargin.toFixed(1) + '%' }) },
+  rev_growth: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'Crecimiento de ventas ≥', p: { min: 10 }, hint: 'interanual, último trimestre',
+    eval: (t, f, c, p) => (f.revGrowth == null ? { met: null, val: '—' } : { met: f.revGrowth >= p.min, val: pct(f.revGrowth) }) },
+  fcf_yield: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'FCF yield ≥', p: { min: 3 }, hint: 'flujo de caja libre / market cap',
+    eval: (t, f, c, p) => (f.fcfYield == null ? { met: null, val: '—' } : { met: f.fcfYield >= p.min, val: f.fcfYield.toFixed(1) + '%' }) },
+  debt_ebitda: { cat: 'fun', pol: 1, w: 1, off: 1, label: 'Deuda/EBITDA ≤', p: { max: 3 },
+    eval: (t, f, c, p) => (f.debtEbitda == null ? { met: null, val: '—' } : { met: f.debtEbitda <= p.max, val: f.debtEbitda.toFixed(1) + 'x' }) },
+  ev_sales: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'EV/Ventas ≤', p: { max: 15 },
+    eval: (t, f, c, p) => rangeDown(f.evSales, p.max, (x) => x.toFixed(1) + 'x') },
+  rule40: { cat: 'fun', pol: 1, w: 3, off: 1, label: 'Regla del 40 ≥', p: { min: 40 }, hint: 'crecimiento de ventas % + margen FCF %',
+    eval: (t, f, c, p) => (f.rule40 == null ? { met: null, val: '—' } : { met: f.rule40 >= p.min, val: f.rule40.toFixed(0) }) },
+  eps_rev_up: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'Suben EPS estimado', p: { pct: 2 }, hint: 'revisión EPS año en curso, 90 días',
+    eval: (t, f, c, p) => ({ met: f.epsRev90 == null ? null : f.epsRev90 >= p.pct, val: pct(f.epsRev90) }) },
+  payout_high: { cat: 'fun', pol: -1, w: 2, off: 1, label: 'Payout insostenible', p: { max: 90 },
+    eval: (t, f, c, p) => (f.payout == null ? { met: null, val: '—' } : { met: f.payout > p.max, val: f.payout.toFixed(0) + '%' }) },
+  rev_decline: { cat: 'fun', pol: -1, w: 2, off: 1, label: 'Ventas cayendo', p: { max: 0 },
+    eval: (t, f, c, p) => (f.revGrowth == null ? { met: null, val: '—' } : { met: f.revGrowth < p.max, val: pct(f.revGrowth) }) },
+
   // ── Fundamentals negativos
   miss: { cat: 'fun', pol: -1, w: 2, tg: 1, label: 'Earnings bajo estimado', p: {}, hint: 'último trimestre no llegó al estimado',
     eval: (t, f) => { const e = (f.earnings || []).at(-1); if (!e) return { met: null, val: '—' }; return { met: e.surprise < 0, val: pct(e.surprise) }; } },
@@ -193,7 +232,7 @@ export function evalTargets(t, f, targets = []) {
 // Defaults para un grupo nuevo: todo encendido con pesos sugeridos
 export function defaultRules() {
   const o = {};
-  for (const [id, r] of Object.entries(RULES)) o[id] = { on: true, w: r.w, p: { ...r.p }, tg: !!r.tg };
+  for (const [id, r] of Object.entries(RULES)) o[id] = { on: !r.off, w: r.w, p: { ...r.p }, tg: !!r.tg };
   return o;
 }
 
@@ -213,17 +252,21 @@ export function scoreTicker(ticker, group, data, benchData) {
     const on = ov.on ?? g.on; if (!on) continue;
     const w = ov.w ?? g.w; const p = { ...def.p, ...g.p, ...(ov.p || {}) };
     let r; try { r = def.eval(t, f, ctx, p); } catch { r = { met: null, val: 'err' }; }
-    res.push({ id, label: def.label, cat: def.cat, pol: def.pol, w, met: r.met, val: r.val, tg: g.tg ?? !!def.tg });
+    res.push({ id, label: def.label, cat: def.cat, pol: def.pol, w, met: r.met, val: r.val, frac: r.frac, tg: g.tg ?? !!def.tg });
     if (r.met == null) continue; // sin dato: no cuenta ni a favor ni en contra
     const b = by[def.cat === 'tec' ? 'tec' : 'fun'];
-    if (def.pol > 0) { posMax += w; totPos++; b.posMax += w; b.totPos++; if (r.met) { pos += w; metPos++; b.pos += w; b.metPos++; } }
+    const pts = r.met ? w * (r.frac ?? 1) : 0;
+    if (def.pol > 0) { posMax += w; totPos++; b.posMax += w; b.totPos++; if (r.met) { pos += pts; metPos++; b.pos += pts; b.metPos++; } }
     else if (r.met) { neg += w; b.neg += w; }
   }
+  const rd = (x) => Math.round(x * 10) / 10;
+  pos = rd(pos); neg = rd(neg);
+  for (const k of ['tec', 'fun']) { by[k].pos = rd(by[k].pos); by[k].neg = rd(by[k].neg); }
   return {
     t, f, targets, rules: res, pos, neg, posMax, metPos, totPos,
-    score: pos - neg, pct: posMax ? pos / posMax : 0,
-    tec: { ...by.tec, score: by.tec.pos - by.tec.neg, pct: by.tec.posMax ? by.tec.pos / by.tec.posMax : 0 },
-    fun: { ...by.fun, score: by.fun.pos - by.fun.neg, pct: by.fun.posMax ? by.fun.pos / by.fun.posMax : 0 },
+    score: rd(pos - neg), pct: posMax ? pos / posMax : 0,
+    tec: { ...by.tec, score: rd(by.tec.pos - by.tec.neg), pct: by.tec.posMax ? by.tec.pos / by.tec.posMax : 0 },
+    fun: { ...by.fun, score: rd(by.fun.pos - by.fun.neg), pct: by.fun.posMax ? by.fun.pos / by.fun.posMax : 0 },
   };
 }
 

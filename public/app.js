@@ -1,5 +1,6 @@
 import { RULES, MARKET_RULES, TARGET_METRICS, defaultRules, defaultMarket, scoreTicker, evalMarket } from './engine.js';
 import DEFAULT_CONFIG from './default-config.js';
+import { PROFILES, applyProfile } from './profiles.js';
 
 // ───────────────────────── Estado ─────────────────────────
 const KEY = 'radar-alertas-v2';
@@ -213,6 +214,9 @@ function rulesEditor(rules, { overrides, onChange, results } = {}) {
   const wrap = document.createElement('div'); wrap.className = 'rules';
   for (const [cat, title] of cats) {
     const h = document.createElement('h4'); h.textContent = title; wrap.appendChild(h);
+    // las activas a la vista; las apagadas, plegadas en "métricas disponibles"
+    const more = document.createElement('details'); more.className = 'collapse more';
+    let nOff = 0;
     for (const pol of [1, -1]) for (const [id, def] of Object.entries(RULES).filter(([, d]) => d.cat === cat && d.pol === pol)) {
       const base = rules[id] || { on: false, w: def.w, p: { ...def.p } };
       const ov = overrides?.[id] || {};
@@ -233,8 +237,9 @@ function rulesEditor(rules, { overrides, onChange, results } = {}) {
         row.classList.toggle('off', !(overrides ? (overrides[id].on ?? base.on) : rules[id].on));
         onChange?.();
       }));
-      wrap.appendChild(row);
+      if (on) wrap.appendChild(row); else { more.appendChild(row); nOff++; }
     }
+    if (nOff) { more.insertAdjacentHTML('afterbegin', `<summary>+ ${nOff} métrica(s) disponibles para activar</summary>`); wrap.appendChild(more); }
   }
   return wrap;
 }
@@ -259,12 +264,21 @@ function renderGroups() {
           <input type="color" value="${g.color}" data-f="color" style="width:36px;padding:0;height:30px"></div>
         <div class="row"><button class="sm" data-a="dup">Duplicar</button><button class="sm danger" data-a="del">Eliminar</button></div>
       </div>
+      <div class="row" style="margin-top:12px"><label class="muted">Tipo de empresa
+        <select data-prof><option value="">Personalizado</option>${Object.entries(PROFILES).map(([k, p]) => `<option value="${k}" ${g.profile === k ? 'selected' : ''}>${p.label}</option>`).join('')}</select></label>
+        ${g.profile && PROFILES[g.profile] ? `<span class="muted">${PROFILES[g.profile].desc}</span>` : ''}</div>
+      <div class="chips" style="margin-top:8px">${Object.entries(g.rules).filter(([id, r]) => r.on && RULES[id] && RULES[id].cat === 'fun' && PROFILES[g.profile]?.rules[id]).map(([id, r]) => `<span class="chip ${RULES[id].pol > 0 ? 'p' : 'n'}">${RULES[id].label} ${Object.values(r.p || {}).join('–')}</span>`).join('')}</div>
       <div class="chips" style="margin-top:12px">${tks.map((t) => `<span class="chip">${t.symbol} <a data-rm="${t.symbol}" style="cursor:pointer;color:var(--mut)">✕</a></span>`).join('') || '<span class="muted">Sin acciones todavía</span>'}</div>
       <div class="add"><input placeholder="Agregar tickers: NVDA, AVGO, TSM" data-add><button class="sm primary" data-a="add">Agregar</button></div>`;
     card.querySelectorAll('[data-f]').forEach((inp) => inp.addEventListener('change', () => {
       g[inp.dataset.f] = inp.dataset.f === 'benchmark' ? inp.value.trim().toUpperCase() : inp.value;
       save(); if (inp.dataset.f === 'benchmark') refresh(); else { evaluate(); render(); }
     }));
+    $('[data-prof]', card).onchange = (e) => {
+      const k = e.target.value; g.profile = k || null;
+      if (k) { applyProfile(g.rules, k); toast(`${g.name}: perfil "${PROFILES[k].label}" aplicado`); }
+      save(); evaluate(); render();
+    };
     const addInp = $('[data-add]', card);
     const doAdd = () => {
       const syms = addInp.value.split(/[\s,;]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
@@ -377,10 +391,10 @@ function renderDrawer(sym) {
       <div class="kpi"><div class="k">AT · AF</div><div class="v"><span class="${r.tec.score > 0 ? 'pos' : r.tec.score < 0 ? 'neg' : ''}">${r.tec.score}</span> · <span class="${r.fun.score > 0 ? 'pos' : r.fun.score < 0 ? 'neg' : ''}">${r.fun.score}</span></div></div>
       <div class="kpi"><div class="k">RSI</div><div class="v">${fmt(r.t.rsiNow, 0)}</div></div>
       <div class="kpi"><div class="k">Drawdown</div><div class="v">${sgn(r.t.dd)}</div></div>
-      <div class="kpi"><div class="k">P/E fwd</div><div class="v">${fmt(f.forwardPE)}</div></div>
-      <div class="kpi"><div class="k">PEG</div><div class="v">${fmt(f.peg, 2)}</div></div>
-      <div class="kpi"><div class="k">EV/EBITDA</div><div class="v">${fmt(f.evEbitda)}</div></div>
-      <div class="kpi"><div class="k">D/E</div><div class="v">${fmt(f.debtEquity, 2)}</div></div>
+      ${(() => {
+        const key = r.rules.filter((x) => x.cat === 'fun' && x.pol > 0 && (PROFILES[r.group.profile]?.rules[x.id] || ['fpe', 'peg', 'evebitda', 'de'].includes(x.id))).slice(0, 4);
+        return key.map((x) => `<div class="kpi"><div class="k">${esc(x.label.replace(/ [≤≥]$/, ''))}</div><div class="v ${x.met ? 'pos' : ''}">${esc(String(x.val).split(' vs ')[0])}</div></div>`).join('');
+      })()}
     </div>
     ${chartSvg(r.t)}
     <h4 style="margin:18px 0 6px">Objetivos: venta y promedio</h4>
