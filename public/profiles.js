@@ -26,6 +26,10 @@ export const PROFILES = {
     label: 'Plataforma / contenido', desc: 'Rol: crecimiento rentable. Ventas creciendo, margen operativo en expansión y caja.',
     rules: { rev_growth: { w: 2, p: { min: 15 } }, op_margin: { w: 2, p: { min: 15 } }, fcf_yield: { w: 2, p: { min: 3 } }, peg: { w: 2, p: { max: 1.5 } }, fpe: { w: 1, p: { max: 30 } }, fpe_high: { w: 1, p: { max: 60 } }, rev_decline: { w: 2, p: { margen: 5 } } },
   },
+  discrecional: {
+    label: 'Consumo discrecional / retail', desc: 'Rol: consumo cíclico y retail. Crecimiento de ventas, márgenes, caja y valuación vs EBITDA.',
+    rules: { rev_growth: { w: 2, p: { min: 5 } }, op_margin: { w: 2, p: { min: 8 } }, fcf_yield: { w: 2, p: { min: 4 } }, fpe: { w: 2, p: { max: 25 } }, peg: { w: 2, p: { max: 2 } }, evebitda: { w: 1, p: { max: 14 } }, rev_decline: { w: 2, p: { margen: 5 } } },
+  },
   salud: {
     label: 'Salud', desc: 'Rol: defensiva con crecimiento. Valuación, caja y yield vs su historia.',
     rules: { fpe: { w: 2, p: { max: 20 } }, peg: { w: 2, p: { max: 1.5 } }, fcf_yield: { w: 2, p: { min: 4 } }, div_vs_avg: { w: 2, p: { margen: 0 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 2, p: { margen: 5 } } },

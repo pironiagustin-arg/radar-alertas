@@ -9,13 +9,14 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function seed() { return structuredClone(DEFAULT_CONFIG); }
+function seed() { return normalize(structuredClone(DEFAULT_CONFIG)); }
 
 let S = load();
 let DATA = { symbols: {} }, RESULTS = [], MARKET = null;
 let LOG = JSON.parse(localStorage.getItem(KEY + ':log') || '[]');
 let ACTIVE = JSON.parse(localStorage.getItem(KEY + ':active') || 'null');
 let filterGroup = 'all', openSym = null, unseen = 0;
+const SEL = new Set(); // tickers elegidos para comparar
 
 function load() {
   try {
@@ -55,7 +56,7 @@ async function pushConfig() {
 }
 function normalize(s) {
   for (const g of s.groups) { const d = defaultRules(); for (const k in d) if (!g.rules[k]) g.rules[k] = d[k]; }
-  s.market = { ...defaultMarket(), ...(s.market || {}) }; s.telegram ||= { minScore: null };
+  s.market = { ...defaultMarket(), ...(s.market || {}) }; s.telegram ||= { minScore: null }; s.alertMin ||= { at: 5, af: 8, negAlways: true };
   return s;
 }
 function askPass(wrong) {
@@ -120,7 +121,7 @@ function sortResults() {
 function detectAlerts() {
   const now = {}; const fresh = [];
   for (const m of MARKET?.rules || []) if (m.met) now['MKT:' + m.id] = { sym: 'Mercado', label: m.label, pol: m.pol, val: m.val };
-  for (const r of RESULTS) for (const x of r.rules || []) if (x.met) now[r.ticker.symbol + ':' + x.id] = { sym: r.ticker.symbol, label: x.label, pol: x.pol, val: x.val, score: r.score };
+  for (const r of RESULTS) for (const x of r.rules || []) if (x.met && passesMin(r, x, S.alertMin)) now[r.ticker.symbol + ':' + x.id] = { sym: r.ticker.symbol, label: x.label, pol: x.pol, val: x.val, score: r.score };
   const first = ACTIVE == null;
   for (const [k, v] of Object.entries(now)) if (!first && !ACTIVE[k]) fresh.push({ ...v, k, t: Date.now() });
   ACTIVE = Object.fromEntries(Object.keys(now).map((k) => [k, 1]));
@@ -178,18 +179,22 @@ function renderRanking() {
       </div>
     </div>
     <div class="row spread" style="margin-top:10px">
-      <div class="row"><span class="muted">Rankear por</span>${sortBtn('tec', 'Técnico (AT)')}${sortBtn('fun', 'Fundamental (AF)')}${sortBtn('total', 'Total')}</div>
+      <div class="row"><span class="muted">Rankear por</span>${sortBtn('tec', 'Técnico (AT)')}${sortBtn('fun', 'Fundamental (AF)')}${sortBtn('total', 'Total')}
+        <button class="sm ${SEL.size >= 2 ? 'primary' : ''}" id="cmpBtn" ${SEL.size >= 2 ? '' : 'disabled'}>Comparar ${SEL.size ? `(${SEL.size})` : ''}</button>${SEL.size ? '<button class="sm ghost" id="cmpClr">Limpiar selección</button>' : ''}</div>
       <span class="muted">Score = peso de positivas cumplidas − peso de negativas activas · AF incluye tus objetivos</span>
     </div>
     <div class="tablewrap"><table>
-      <thead><tr><th>#</th><th>Ticker</th><th class="hide-m">Grupo</th><th style="text-align:right">Precio</th>
+      <thead><tr><th title="Elegí 2 o más para comparar">⇄</th><th>#</th><th>Ticker</th><th class="hide-m">Grupo</th><th style="text-align:right">Precio</th>
         <th class="${sortBy === 'tec' ? 'sorted' : ''}">AT</th><th class="${sortBy === 'fun' ? 'sorted' : ''}">AF</th><th class="${sortBy === 'total' ? 'sorted' : ''}" style="text-align:right">Total</th>
         <th>Señales activas</th><th style="text-align:right">RSI</th><th style="text-align:right">vs EMA200</th><th style="text-align:right">A venta</th></tr></thead>
       <tbody>${rows.map((r, i) => rowHtml(r, i, maxT, maxF)).join('') || '<tr><td colspan="11" class="muted">Sin tickers en este grupo</td></tr>'}</tbody>
     </table></div>`;
   el.querySelectorAll('[data-g]').forEach((c) => (c.onclick = () => { filterGroup = c.dataset.g; renderRanking(); }));
   el.querySelectorAll('[data-sort]').forEach((b) => (b.onclick = () => { sortBy = b.dataset.sort; localStorage.setItem(KEY + ':sort', sortBy); sortResults(); renderRanking(); }));
-  el.querySelectorAll('tbody tr[data-s]').forEach((tr) => (tr.onclick = () => openDrawer(tr.dataset.s)));
+  el.querySelectorAll('tbody tr[data-s]').forEach((tr) => (tr.onclick = (e) => { if (e.target.closest('.selc')) return; openDrawer(tr.dataset.s); }));
+  el.querySelectorAll('.selc input').forEach((c) => (c.onchange = () => { c.checked ? SEL.add(c.dataset.sel) : SEL.delete(c.dataset.sel); renderRanking(); }));
+  const cb = $('#cmpBtn', el); if (cb) cb.onclick = () => openCompare();
+  const cc = $('#cmpClr', el); if (cc) cc.onclick = () => { SEL.clear(); renderRanking(); };
 }
 
 function scoreCell(c, max) {
@@ -201,13 +206,14 @@ function scoreCell(c, max) {
 
 function rowHtml(r, i, maxT, maxF) {
   const s = r.ticker.symbol;
-  if (r.error) return `<tr data-s="${s}"><td class="rank">${i + 1}</td><td class="sym">${s}</td><td colspan="9" class="muted">${esc(r.error)}</td></tr>`;
+  const selc = `<td class="selc"><input type="checkbox" data-sel="${s}" ${SEL.has(s) ? 'checked' : ''}></td>`;
+  if (r.error) return `<tr data-s="${s}">${selc}<td class="rank">${i + 1}</td><td class="sym">${s}</td><td colspan="9" class="muted">${esc(r.error)}</td></tr>`;
   const met = r.rules.filter((x) => x.met).sort((a, b) => b.pol - a.pol || b.w - a.w);
   const chips = (arr) => arr.map((x) => `<span class="chip ${x.pol > 0 ? 'p' : 'n'}">${esc(x.label)}</span>`).join('');
   const at = met.filter((x) => x.cat === 'tec'), af = met.filter((x) => x.cat !== 'tec');
   const closest = r.targets.filter((x) => x.dVenta != null).sort((a, b) => a.dVenta - b.dVenta)[0];
   const name = r.f?.name || DATA.symbols[s]?.prices?.name || '';
-  return `<tr data-s="${s}">
+  return `<tr data-s="${s}">${selc}
     <td class="rank">${i + 1}</td>
     <td class="sym">${s}<small>${esc(name)}</small></td>
     <td class="hide-m"><span class="gtag" style="border-left-color:${r.group.color}">${esc(r.group.name)}</span></td>
@@ -336,22 +342,33 @@ function renderGroups() {
   }
 }
 
+function podium() {
+  const ok = RESULTS.filter((r) => !r.error);
+  if (!ok.length) return '';
+  const col = (title, k) => `<div class="card pod"><h3>${title}</h3>${[...ok].sort((a, b) => b[k].score - a[k].score || b[k].pct - a[k].pct).slice(0, 3).map((r, i) => `
+    <div class="podr" data-s="${r.ticker.symbol}"><span class="medal">${['🥇', '🥈', '🥉'][i]}</span><b>${r.ticker.symbol}</b>
+      <span class="gtag" style="border-left-color:${r.group.color}">${esc(r.group.name)}</span><span class="pos mono">${r[k].score}</span><span class="muted mono">${r[k].metPos}/${r[k].totPos}</span></div>`).join('')}</div>`;
+  return `<div class="grid podium">${col('Top 3 técnico (AT)', 'tec')}${col('Top 3 fundamental (AF)', 'fun')}</div>`;
+}
+
 function renderAlerts() {
   const el = $('#tab-alertas');
-  el.innerHTML = `<div class="row spread"><span class="muted">Se registra cada condición que pasa de "no" a "sí" entre actualizaciones. Con la pestaña abierta se actualiza cada ${S.refreshMin} min.</span><button class="sm" id="clr">Limpiar</button></div>
+  el.innerHTML = `${podium()}<div class="row spread" style="margin-top:14px"><span class="muted">Se registra cada condición que pasa de "no" a "sí" entre actualizaciones. Con la pestaña abierta se actualiza cada ${S.refreshMin} min.</span><button class="sm" id="clr">Limpiar</button></div>
   <div class="feed card" style="margin-top:12px">${LOG.map((a) => `<div class="it">
       <span class="chip ${a.pol > 0 ? 'p' : 'n'}">${a.pol > 0 ? '▲' : '▼'} ${esc(a.sym)}</span>
       <div>${esc(a.label)} <span class="muted mono">${esc(a.val)}</span>${a.score != null ? ` <span class="muted">· score ${a.score}</span>` : ''}</div>
       <span class="muted">${new Date(a.t).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span></div>`).join('') || '<div class="muted">Sin alertas todavía.</div>'}</div>`;
   $('#clr', el).onclick = () => { LOG = []; localStorage.setItem(KEY + ':log', '[]'); renderAlerts(); };
+  el.querySelectorAll('.podr').forEach((d) => (d.onclick = () => openDrawer(d.dataset.s)));
   if (SERVER.ok) api('/api/alerts').then(({ alerts }) => {
     if (!alerts?.length) return;
     const box = document.createElement('div');
+    const anchor = el.querySelector('.podium');
     box.innerHTML = `<h4 style="margin:18px 0 6px">Detectadas por el servidor (las que van a Telegram)</h4><div class="feed card">${alerts.map((a) => `<div class="it">
       <span class="chip ${a.pol > 0 ? 'p' : 'n'}">${a.pol > 0 ? '▲' : '▼'} ${esc(a.sym)}</span>
       <div>${esc(a.label)} <span class="muted mono">${esc(a.val)}</span></div>
       <span class="muted">${new Date(a.created_at).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span></div>`).join('')}</div>`;
-    el.prepend(box);
+    anchor ? anchor.after(box) : el.prepend(box);
   }).catch(() => {});
 }
 
@@ -360,6 +377,11 @@ function renderSettings() {
   el.innerHTML = `<div class="grid">
     <div class="card"><h3>Alertas generales de mercado</h3><div class="rules" id="mk"></div></div>
     <div class="card"><h3>Avisos (Telegram y mail)</h3><div id="tgBox" class="muted" style="margin-top:8px">${SERVER.ok ? 'Revisando…' : 'Iniciá sesión para configurarlo.'}</div></div>
+    <div class="card"><h3>Puntaje mínimo para alertar</h3>
+      <p class="muted">Una señal positiva de un ticker solo genera alerta (en la página, mail y Telegram) si su score de esa categoría supera el mínimo. Así te llegan solo las que valen la pena.</p>
+      <div class="row"><label>Técnicas: AT ≥ <input type="number" step="0.5" id="amAT" value="${S.alertMin.at ?? ''}"></label>
+        <label>Fundamentales: AF ≥ <input type="number" step="0.5" id="amAF" value="${S.alertMin.af ?? ''}"></label>
+        <label><input type="checkbox" id="amNeg" ${S.alertMin.negAlways !== false ? 'checked' : ''}> Las negativas (venta, recortes, pierde EMA200…) avisan siempre</label></div></div>
     <div class="card"><h3>Actualización</h3><div class="row" style="margin-top:10px"><label>Refrescar cada <input type="number" id="rf" value="${S.refreshMin}"> minutos (con la pestaña abierta)</label></div></div>
     <div class="card"><h3>Backup</h3><p class="muted">Con sesión iniciada la configuración se guarda en la nube y se sincroniza entre dispositivos. El JSON sirve de backup.</p>
       <div class="row"><button id="exp">Exportar JSON</button><button id="imp">Importar JSON</button><button class="danger" id="rst">Restaurar ejemplo</button></div>
@@ -381,6 +403,8 @@ function renderSettings() {
     mk.appendChild(row);
   }
   if (SERVER.ok) loadTg();
+  const am = () => { S.alertMin = { at: $('#amAT', el).value === '' ? null : +$('#amAT', el).value, af: $('#amAF', el).value === '' ? null : +$('#amAF', el).value, negAlways: $('#amNeg', el).checked }; save(); toast('Puntaje mínimo guardado'); };
+  ['#amAT', '#amAF', '#amNeg'].forEach((q) => ($(q, el).onchange = am));
   $('#rf', el).onchange = (e) => { S.refreshMin = Math.max(5, +e.target.value || 15); save(); schedule(); };
   $('#exp', el).onclick = () => { $('#io', el).value = JSON.stringify(S, null, 1); navigator.clipboard?.writeText($('#io', el).value); toast('Copiado al portapapeles'); };
   $('#imp', el).onclick = () => { try { const s = JSON.parse($('#io', el).value); if (!s.groups) throw 0; S = s; save(); S = load(); refresh(true); toast('Configuración importada'); } catch { toast('JSON inválido'); } };
@@ -747,4 +771,54 @@ function fundTable(sym, r, tk, keyIds = []) {
   return `<h4 style="margin:14px 0 6px">Otras métricas (no puntúan en este grupo)</h4>
     <table class="tgt fund"><thead><tr><th>Métrica</th><th style="text-align:right">Yahoo</th><th>Tu valor</th><th></th></tr></thead>
     <tbody>${FUND_FIELDS.filter(([k]) => !skip.has(k)).map(row).join('')}</tbody></table>`;
+}
+
+
+// ───────────────────────── Filtro de alertas por puntaje ─────────────────────────
+function passesMin(r, x, m = {}) {
+  if (x.pol < 0) return m.negAlways !== false || (r.score >= (m.at ?? -99));
+  const min = x.cat === 'tec' ? m.at : m.af;
+  return min == null || (x.cat === 'tec' ? r.tec.score : r.fun.score) >= min;
+}
+
+// ───────────────────────── Comparador ─────────────────────────
+let CMP_METRICS = null;
+const BASE_METRICS = [
+  ['_at', 'Score AT', (r) => r.tec.score, 1], ['_af', 'Score AF', (r) => r.fun.score, 1], ['_tot', 'Score total', (r) => r.score, 1],
+  ['_price', 'Precio', (r) => r.t.price, 0], ['_rsi', 'RSI', (r) => r.t.rsiNow, 0], ['_d200', 'vs EMA200 %', (r) => r.t.d200, 0],
+  ['_dd', 'Drawdown 52s %', (r) => r.t.dd, 0], ['_yoy', 'Var. precio 12m %', (r) => r.t.priceYoY, 0],
+];
+// 1 = más alto mejor, -1 = más bajo mejor, 0 = sin color
+const BETTER = { forwardPE: -1, trailingPE: -1, peg: -1, evEbitda: -1, evSales: -1, pb: -1, debtEbitda: -1, debtEquity: -1, efficiency: -1, divYield: 1, roe: 1, grossMargin: 1, opMargin: 1, revGrowth: 1, revGrowthFY: 1, epsYoY: 1, fcfYield: 1, rule40: 1, epsRev30: 1, epsRev90: 1 };
+
+function openCompare() {
+  const rs = [...SEL].map((s) => RESULTS.find((r) => r.ticker.symbol === s)).filter((r) => r && !r.error);
+  if (rs.length < 2) return;
+  if (!CMP_METRICS) {
+    const keys = new Set(['_at', '_af', '_rsi', '_d200']);
+    for (const r of rs) for (const [id] of keyRules(r.group)) if (RULE_FIELD[id]) keys.add(RULE_FIELD[id]);
+    CMP_METRICS = [...keys];
+  }
+  const all = [...BASE_METRICS.map(([k, l]) => [k, l]), ...FUND_FIELDS.map(([k, l]) => [k, l])];
+  const val = (r, k) => { const b = BASE_METRICS.find((m) => m[0] === k); return b ? b[2](r) : r.f?.[k]; };
+  const rows = CMP_METRICS.map((k) => {
+    const label = all.find((a) => a[0] === k)?.[1] || k;
+    const vals = rs.map((r) => val(r, k));
+    const dir = k.startsWith('_') ? (BASE_METRICS.find((m) => m[0] === k)[3]) : (BETTER[k] || 0);
+    const nums = vals.filter((v) => v != null && isFinite(v) && !(dir === -1 && v <= 0));
+    const best = dir && nums.length > 1 ? (dir > 0 ? Math.max(...nums) : Math.min(...nums)) : null;
+    const unit = FUND_FIELDS.find((f) => f[0] === k)?.[2] || '';
+    return `<tr><td>${esc(label)}</td>${vals.map((v) => `<td class="num ${best != null && v === best ? 'best' : ''}">${v == null || !isFinite(v) ? '—' : (+v).toFixed(2) + (unit === '%' ? '%' : unit === 'x' ? 'x' : '')}</td>`).join('')}</tr>`;
+  }).join('');
+  const m = $('#cmp');
+  m.innerHTML = `<div class="modal-in cmp-in">
+    <div class="row spread"><h3>Comparar</h3><button class="ghost" id="cmpX">✕</button></div>
+    <div class="tablewrap"><table class="cmpt"><thead><tr><th>Métrica</th>${rs.map((r) => `<th style="text-align:right">${r.ticker.symbol}<br><span class="muted" style="font-weight:400;text-transform:none">${esc(r.group.name)}</span></th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="muted" style="margin:8px 0 4px">En verde, la mejor de cada fila. Elegí qué métricas ver:</p>
+    <div class="chips">${all.map(([k, l]) => `<span class="chip f ${CMP_METRICS.includes(k) ? 'on' : ''}" data-cm="${k}">${esc(l)}</span>`).join('')}</div>
+  </div>`;
+  m.classList.add('on');
+  $('#cmpX', m).onclick = () => m.classList.remove('on');
+  m.onclick = (e) => { if (e.target === m) m.classList.remove('on'); };
+  m.querySelectorAll('[data-cm]').forEach((c) => (c.onclick = () => { const k = c.dataset.cm; CMP_METRICS = CMP_METRICS.includes(k) ? CMP_METRICS.filter((x) => x !== k) : [...CMP_METRICS, k]; openCompare(); }));
 }
