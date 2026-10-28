@@ -5,7 +5,7 @@ import { tg } from '../lib/telegram.js';
 
 export default async function handler(req, res) {
   if (!authed(req, res)) return;
-  const status = { anthropic: !!process.env.ANTHROPIC_API_KEY, telegramToken: !!process.env.TELEGRAM_BOT_TOKEN, email: !!(process.env.RESEND_API_KEY && process.env.ALERT_EMAIL) };
+  const status = { anthropic: !!(process.env.ANTHROPIC_API_KEY || process.env.GEMINI_API_KEY), aiProvider: process.env.ANTHROPIC_API_KEY ? 'Claude' : process.env.GEMINI_API_KEY ? 'Gemini (gratis)' : null, telegramToken: !!process.env.TELEGRAM_BOT_TOKEN, email: !!(process.env.RESEND_API_KEY && process.env.ALERT_EMAIL) };
   try {
     status.chatVinculado = !!(await kvGet('telegram_chat'));
     if (status.telegramToken) {

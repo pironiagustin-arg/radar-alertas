@@ -436,7 +436,7 @@ async function loadTg() {
     <div>${ok(st.webhook)} Webhook conectado ${st.webhookError ? `<span class="neg">· ${esc(st.webhookError)}</span>` : ''}</div>
     <div>${ok(st.chatVinculado)} Tu chat vinculado</div>
     <div>${ok(st.email)} Mail (RESEND_API_KEY + ALERT_EMAIL)</div>
-    <div>${ok(st.anthropic)} IA (ANTHROPIC_API_KEY, opcional)</div>
+    <div>${ok(st.anthropic)} IA ${st.aiProvider ? `(${st.aiProvider})` : '(cargá GEMINI_API_KEY, gratis en aistudio.google.com)'}</div>
     ${st.error ? `<div class="neg">${esc(st.error)}</div>` : ''}
     <div class="row" style="margin-top:10px"><button class="primary sm" id="tgConnect" ${st.telegramToken ? '' : 'disabled'}>Conectar bot</button>
       <button class="sm" id="tgScan">Escanear ahora</button>
