@@ -30,6 +30,26 @@ export const PROFILES = {
     label: 'Consumo discrecional / retail', desc: 'Rol: consumo cíclico y retail. Crecimiento de ventas, márgenes, caja y valuación vs EBITDA.',
     rules: { rev_growth: { w: 2, p: { min: 5 } }, op_margin: { w: 2, p: { min: 8 } }, fcf_yield: { w: 2, p: { min: 4 } }, fpe: { w: 2, p: { max: 25 } }, peg: { w: 2, p: { max: 2 } }, evebitda: { w: 1, p: { max: 14 } }, rev_decline: { w: 2, p: { margen: 5 } } },
   },
+  neocloud: {
+    label: 'Neocloud / infra IA', desc: 'Rol: apuesta de alto crecimiento con mucha deuda. Importa crecer rápido sin quedarse sin caja ni diluir de más; el P/E no aplica.',
+    rules: { rev_growth: { w: 3, p: { min: 50 } }, ev_sales: { w: 2, p: { max: 15 } }, gross_margin: { w: 1, p: { min: 40 } }, cash_debt: { w: 2, p: { min: 30 } }, current_ratio: { w: 1, p: { min: 1 } }, debt_mcap: { w: 1, p: { max: 60 } }, dilution: { w: 2, p: { max: 10 } } },
+  },
+  ciber: {
+    label: 'Ciberseguridad', desc: 'Rol: software de crecimiento recurrente. Regla del 40, EV/Ventas, margen bruto y caja.',
+    rules: { rule40: { w: 3, p: { min: 40 } }, ev_sales: { w: 2, p: { max: 15 } }, rev_growth: { w: 2, p: { min: 15 } }, gross_margin: { w: 1, p: { min: 70 } }, fcf_yield: { w: 2, p: { min: 2.5 } }, dilution: { w: 1, p: { max: 5 } }, rev_decline: { w: 2, p: { margen: 5 } } },
+  },
+  defensa: {
+    label: 'Defensa', desc: 'Rol: cíclica estable con contratos de gobierno. Caja, márgenes, valuación y dividendo vs su historia.',
+    rules: { fcf_yield: { w: 2, p: { min: 4 } }, evebitda: { w: 2, p: { max: 16 } }, op_margin: { w: 1, p: { min: 10 } }, fpe: { w: 2, p: { max: 22 } }, div_vs_avg: { w: 2, p: { margen: 0 } }, debt_ebitda: { w: 1, p: { max: 3.5 } }, rev_decline: { w: 1, p: { margen: 5 } } },
+  },
+  petroleo: {
+    label: 'Petróleo', desc: 'Rol: renta y cobertura de inflación. FCF, dividendo, poca deuda y múltiplo bajo (es cíclico: el P/E engaña en el pico).',
+    rules: { fcf_yield: { w: 3, p: { min: 6 } }, div_range: { w: 2, p: { min: 3, max: 7 } }, debt_ebitda: { w: 2, p: { max: 1.5 } }, evebitda: { w: 2, p: { max: 7 } }, payout_high: { w: 1, p: { max: 100 } }, div_vs_avg: { w: 1, p: { margen: 0 } } },
+  },
+  minera: {
+    label: 'Minería (oro / cobre)', desc: 'Rol: cobertura y electrificación. EV/EBITDA bajo, caja, poca deuda y márgenes (siguen al precio del metal).',
+    rules: { evebitda: { w: 2, p: { max: 8 } }, fcf_yield: { w: 2, p: { min: 5 } }, debt_ebitda: { w: 2, p: { max: 1.5 } }, op_margin: { w: 1, p: { min: 25 } }, rev_growth: { w: 1, p: { min: 10 } }, fpe: { w: 1, p: { max: 20 } } },
+  },
   salud: {
     label: 'Salud', desc: 'Rol: defensiva con crecimiento. Valuación, caja y yield vs su historia.',
     rules: { fpe: { w: 2, p: { max: 20 } }, peg: { w: 2, p: { max: 1.5 } }, fcf_yield: { w: 2, p: { min: 4 } }, div_vs_avg: { w: 2, p: { margen: 0 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 2, p: { margen: 5 } } },

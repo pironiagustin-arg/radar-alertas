@@ -755,7 +755,7 @@ async function uploadTheses(files) {
 
 // ───────────────────────── Métricas fundamentales editables ─────────────────────────
 // qué campo usa cada regla (para mostrar primero las relevantes del grupo)
-const RULE_FIELD = { fpe: 'forwardPE', fpe_high: 'forwardPE', peg: 'peg', evebitda: 'evEbitda', de: 'debtEquity', div_range: 'divYield', div_vs_avg: 'divYield5y', payout_range: 'payout', payout_high: 'payout', efficiency: 'efficiency', roe: 'roe', pb: 'pb', op_margin: 'opMargin', gross_margin: 'grossMargin', rev_growth: 'revGrowth', rev_decline: 'revGrowthFY', fcf_yield: 'fcfYield', debt_ebitda: 'debtEbitda', ev_sales: 'evSales', rule40: 'rule40', eps_rev_up: 'epsRev90', eps_rev_down: 'epsRev30', eps_gap: 'epsYoY', price_ahead: 'epsYoY' };
+const RULE_FIELD = { fpe: 'forwardPE', fpe_high: 'forwardPE', peg: 'peg', evebitda: 'evEbitda', de: 'debtEquity', div_range: 'divYield', div_vs_avg: 'divYield5y', payout_range: 'payout', payout_high: 'payout', efficiency: 'efficiency', roe: 'roe', pb: 'pb', op_margin: 'opMargin', gross_margin: 'grossMargin', rev_growth: 'revGrowth', rev_decline: 'revGrowthFY', fcf_yield: 'fcfYield', debt_ebitda: 'debtEbitda', ev_sales: 'evSales', rule40: 'rule40', cash_debt: 'cashDebt', debt_mcap: 'debtMcap', current_ratio: 'currentRatio', dilution: 'sharesYoY', eps_rev_up: 'epsRev90', eps_rev_down: 'epsRev30', eps_gap: 'epsYoY', price_ahead: 'epsYoY' };
 
 function fundTable(sym, r, tk, keyIds = []) {
   const auto = DATA.symbols[sym]?.fund || {};
@@ -789,7 +789,7 @@ const BASE_METRICS = [
   ['_dd', 'Drawdown 52s %', (r) => r.t.dd, 0], ['_yoy', 'Var. precio 12m %', (r) => r.t.priceYoY, 0],
 ];
 // 1 = más alto mejor, -1 = más bajo mejor, 0 = sin color
-const BETTER = { forwardPE: -1, trailingPE: -1, peg: -1, evEbitda: -1, evSales: -1, pb: -1, debtEbitda: -1, debtEquity: -1, efficiency: -1, divYield: 1, roe: 1, grossMargin: 1, opMargin: 1, revGrowth: 1, revGrowthFY: 1, epsYoY: 1, fcfYield: 1, rule40: 1, epsRev30: 1, epsRev90: 1 };
+const BETTER = { cashDebt: 1, debtMcap: -1, currentRatio: 1, sharesYoY: -1, forwardPE: -1, trailingPE: -1, peg: -1, evEbitda: -1, evSales: -1, pb: -1, debtEbitda: -1, debtEquity: -1, efficiency: -1, divYield: 1, roe: 1, grossMargin: 1, opMargin: 1, revGrowth: 1, revGrowthFY: 1, epsYoY: 1, fcfYield: 1, rule40: 1, epsRev30: 1, epsRev90: 1 };
 
 function openCompare() {
   const rs = [...SEL].map((s) => RESULTS.find((r) => r.ticker.symbol === s)).filter((r) => r && !r.error);
