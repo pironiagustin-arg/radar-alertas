@@ -306,7 +306,7 @@ function renderSettings() {
   const el = $('#tab-ajustes');
   el.innerHTML = `<div class="grid">
     <div class="card"><h3>Alertas generales de mercado</h3><div class="rules" id="mk"></div></div>
-    <div class="card"><h3>Bot de Telegram</h3><div id="tgBox" class="muted" style="margin-top:8px">${SERVER.ok ? 'Revisando…' : 'Iniciá sesión para configurarlo.'}</div></div>
+    <div class="card"><h3>Avisos (Telegram y mail)</h3><div id="tgBox" class="muted" style="margin-top:8px">${SERVER.ok ? 'Revisando…' : 'Iniciá sesión para configurarlo.'}</div></div>
     <div class="card"><h3>Actualización</h3><div class="row" style="margin-top:10px"><label>Refrescar cada <input type="number" id="rf" value="${S.refreshMin}"> minutos (con la pestaña abierta)</label></div></div>
     <div class="card"><h3>Backup</h3><p class="muted">Con sesión iniciada la configuración se guarda en la nube y se sincroniza entre dispositivos. El JSON sirve de backup.</p>
       <div class="row"><button id="exp">Exportar JSON</button><button id="imp">Importar JSON</button><button class="danger" id="rst">Restaurar ejemplo</button></div>
@@ -426,7 +426,8 @@ async function loadTg() {
     <div>${ok(st.telegramToken)} Token del bot ${st.bot ? `(<b>@${esc(st.bot)}</b>)` : ''}</div>
     <div>${ok(st.webhook)} Webhook conectado ${st.webhookError ? `<span class="neg">· ${esc(st.webhookError)}</span>` : ''}</div>
     <div>${ok(st.chatVinculado)} Tu chat vinculado</div>
-    <div>${ok(st.anthropic)} IA (ANTHROPIC_API_KEY)</div>
+    <div>${ok(st.email)} Mail (RESEND_API_KEY + ALERT_EMAIL)</div>
+    <div>${ok(st.anthropic)} IA (ANTHROPIC_API_KEY, opcional)</div>
     ${st.error ? `<div class="neg">${esc(st.error)}</div>` : ''}
     <div class="row" style="margin-top:10px"><button class="primary sm" id="tgConnect" ${st.telegramToken ? '' : 'disabled'}>Conectar bot</button>
       <button class="sm" id="tgScan">Escanear ahora</button>
@@ -435,7 +436,8 @@ async function loadTg() {
       ${st.telegramToken ? '' : '<li>En Telegram abrí <b>@BotFather</b> → <code>/newbot</code> → copiá el token. Cargalo en Vercel como <code>TELEGRAM_BOT_TOKEN</code> y redeployá.</li>'}
       ${st.webhook ? '' : '<li>Tocá <b>Conectar bot</b>.</li>'}
       ${st.chatVinculado ? '' : `<li>Abrí ${st.bot ? `<a href="https://t.me/${esc(st.bot)}" target="_blank" style="color:var(--acc2)">@${esc(st.bot)}</a>` : 'tu bot'} y mandá <code>/start TU_CONTRASEÑA</code>.</li>`}
-      <li>En cada condición de los grupos, el 📲 define si avisa por Telegram. Se escanea solo cada 30 min en horario de mercado.</li>
+      ${st.email ? '' : '<li>Mail: creá cuenta gratis en <b>resend.com</b> con tu mail → API Keys → cargá en Vercel <code>RESEND_API_KEY</code> y <code>ALERT_EMAIL</code> (ese mismo mail) y redeployá.</li>'}
+      <li>En cada condición de los grupos, el 📲 define si avisa (Telegram y mail). Se escanea solo cada 30 min en horario de mercado.</li>
     </ol>`;
   $('#tgConnect', box).onclick = async () => { try { await api('/api/setup', { method: 'POST' }); toast('Bot conectado'); loadTg(); } catch (e) { toast(e.message); } };
   $('#tgScan', box).onclick = async () => { try { await pushConfig(); const r = await api('/api/scan', { method: 'POST' }); toast(r.first ? 'Estado inicial guardado' : `${r.fresh || 0} cambio(s), ${r.sent || 0} enviado(s)`); } catch (e) { toast(e.message); } };
