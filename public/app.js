@@ -483,7 +483,7 @@ function ruleText(id, p) {
   const d = RULES[id]; const u = /yield|payout|efficiency|margin|growth|roe|drawdown|div|rule40|rev|eps/.test(id) && id !== 'rule40' ? '%' : '';
   if (p.min != null && p.max != null) return `${p.min}–${p.max}${u}`;
   if (id === 'div_vs_avg') return 'yield actual ≥ este';
-  if (id === 'rev_decline') return `trim. < año − ${p.margen}pp`;
+  if (id === 'rev_decline') return `alerta si trim. < año − ${p.margen}pp`;
   const op = /[≤≥]/.exec(d.label)?.[0] || (p.max != null ? (d.pol < 0 ? '>' : '≤') : '≥');
   const v = p.max ?? p.min ?? p.pct;
   return v != null ? `${op} ${v}${u}` : '';
@@ -494,7 +494,12 @@ function keyRow(x, sym, tk) {
   const p = { ...RULES[x.id].p, ...(g.rules[x.id]?.p || {}), ...(tk.overrides?.[x.id]?.p || {}) };
   const auto = DATA.symbols[sym]?.fund?.[field], man = tk.fundOverrides?.[field];
   const cur = man ?? auto;
-  const st = x.met == null ? '<span class="st nd">s/d</span>' : x.met ? `<span class="st ${x.pol > 0 ? 'y' : 'yn'}">${x.pol > 0 ? '✔' : '⚠'}</span>` : `<span class="st no">${x.pol > 0 ? '✘' : '–'}</span>`;
+  const st = x.met == null ? '<span class="st nd">s/d</span>' : x.met ? `<span class="st ${x.pol > 0 ? 'y' : 'yn'}">${x.pol > 0 ? '✔' : '⚠'}</span>` : `<span class="st no">${x.pol > 0 ? '✘' : 'ok'}</span>`;
+  const inp = (fld, lbl) => { const a = DATA.symbols[sym]?.fund?.[fld], m = tk.fundOverrides?.[fld], c = m ?? a;
+    return `<label class="mini">${lbl}<input type="text" inputmode="decimal" data-fo="${fld}" value="${c == null ? '' : +(+c).toFixed(2)}" placeholder="cargar"${m != null ? ' class="man"' : ''}></label>`; };
+  if (x.id === 'rev_decline') {
+    return `<tr><td>${esc(x.label)}</td><td>${inp('revGrowth', 'trim.')} ${inp('revGrowthFY', 'año')}</td><td class="muted">${esc(ruleText(x.id, p))}</td><td>${st}</td></tr>`;
+  }
   const label = x.id === 'div_vs_avg' ? 'Yield promedio 5 años' : x.label.replace(/ [≤≥]$/, '');
   return `<tr${man != null ? ' class="manual"' : ''}><td>${esc(label)}${man != null ? ' <span title="Valor tuyo">✎</span>' : ''}</td>
     <td>${field ? `<input type="text" inputmode="decimal" data-fo="${field}" value="${cur == null ? '' : +(+cur).toFixed(2)}" placeholder="cargar">` : `<span class="mono">${esc(x.val)}</span>`}${man != null ? `<button class="sm ghost" data-foclr="${field}" title="Volver al dato de Yahoo${auto != null ? ' (' + (+auto).toFixed(2) + ')' : ''}">↺</button>` : ''}</td>

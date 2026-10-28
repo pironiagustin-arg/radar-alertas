@@ -167,3 +167,6 @@ th.sorted{color:var(--acc2)}
 .keym tr.manual td:first-child{color:var(--acc2)}
 .tgts input{width:72px}
 @media (max-width:640px){.krow{grid-template-columns:18px 1fr 30px}.krow .kp,.krow>label{grid-column:2}}
+.keym label.mini{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--mut);margin-right:6px}
+.keym label.mini input{width:62px}
+.keym input.man{border-color:var(--acc)}
