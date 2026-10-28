@@ -205,6 +205,8 @@ export function scoreTicker(ticker, group, data, benchData) {
   const targets = evalTargets(t, f, ticker.targets);
   const ctx = { targets };
   const res = []; let pos = 0, neg = 0, posMax = 0, metPos = 0, totPos = 0;
+  // puntaje separado: AT (técnicas) y AF (fundamentals + objetivos propios)
+  const by = { tec: { pos: 0, neg: 0, posMax: 0, metPos: 0, totPos: 0 }, fun: { pos: 0, neg: 0, posMax: 0, metPos: 0, totPos: 0 } };
   for (const [id, def] of Object.entries(RULES)) {
     const g = group.rules?.[id] || { on: false, w: def.w, p: def.p };
     const ov = ticker.overrides?.[id] || {};
@@ -213,12 +215,15 @@ export function scoreTicker(ticker, group, data, benchData) {
     let r; try { r = def.eval(t, f, ctx, p); } catch { r = { met: null, val: 'err' }; }
     res.push({ id, label: def.label, cat: def.cat, pol: def.pol, w, met: r.met, val: r.val, tg: g.tg ?? !!def.tg });
     if (r.met == null) continue; // sin dato: no cuenta ni a favor ni en contra
-    if (def.pol > 0) { posMax += w; totPos++; if (r.met) { pos += w; metPos++; } }
-    else if (r.met) neg += w;
+    const b = by[def.cat === 'tec' ? 'tec' : 'fun'];
+    if (def.pol > 0) { posMax += w; totPos++; b.posMax += w; b.totPos++; if (r.met) { pos += w; metPos++; b.pos += w; b.metPos++; } }
+    else if (r.met) { neg += w; b.neg += w; }
   }
   return {
     t, f, targets, rules: res, pos, neg, posMax, metPos, totPos,
     score: pos - neg, pct: posMax ? pos / posMax : 0,
+    tec: { ...by.tec, score: by.tec.pos - by.tec.neg, pct: by.tec.posMax ? by.tec.pos / by.tec.posMax : 0 },
+    fun: { ...by.fun, score: by.fun.pos - by.fun.neg, pct: by.fun.posMax ? by.fun.pos / by.fun.posMax : 0 },
   };
 }
 

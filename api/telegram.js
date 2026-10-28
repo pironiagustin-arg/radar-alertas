@@ -6,7 +6,7 @@ import { loadConfig, runScan, rankingText, scanAndNotify } from '../lib/scan.js'
 import { chat } from '../lib/ai.js';
 
 const HELP = `<b>📡 Radar de Alertas</b>
-/ranking — top 10 del radar
+/ranking — top 10 (/ranking at · /ranking af)
 /mercado — VIX y SPY
 /ticker NVDA — ficha rápida
 /escanear — forzar escaneo de alertas
@@ -50,7 +50,7 @@ export default async function handler(req, res) {
         const r = results[0];
         if (!r || r.error) await sendText(chatId, `No encontré ${escHtml(sym)} en el radar.`);
         else await sendText(chatId, `<b>${sym}</b> ${r.t.price.toFixed(2)} · score <b>${r.score}</b> (${r.metPos}/${r.totPos})\nRSI ${r.t.rsiNow.toFixed(0)} · ${r.t.d200 > 0 ? '+' : ''}${r.t.d200.toFixed(1)}% vs EMA200 · P/E fwd ${r.f?.forwardPE ?? '—'} · PEG ${r.f?.peg ?? '—'}\n\n${r.rules.filter((x) => x.met).map((x) => `${x.pol > 0 ? '🟢' : '🔴'} ${escHtml(x.label)} <code>${escHtml(x.val)}</code>`).join('\n') || 'Sin señales activas'}`);
-      } else await sendText(chatId, `<b>Ranking</b>\n${rankingText(results)}`);
+      } else { const a = (text.split(/\s+/)[1] || '').toLowerCase(); const by = a === 'at' ? 'tec' : a === 'af' ? 'fun' : 'total'; await sendText(chatId, `<b>Ranking ${by === 'tec' ? 'técnico' : by === 'fun' ? 'fundamental' : 'total'}</b>\n${rankingText(results, 10, by)}`); }
       return send(res, 200, {});
     }
     if (text.startsWith('/escanear')) {

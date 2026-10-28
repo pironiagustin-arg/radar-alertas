@@ -149,3 +149,7 @@ body:not(.online) .offline-note{display:block}
 .profile{white-space:normal;line-height:1.55}
 .profile h1,.profile h2,.profile h3{font-size:14px;margin:12px 0 4px}
 button:disabled{opacity:.45;cursor:not-allowed}
+th.sorted{color:var(--acc2)}
+.sig{display:flex;flex-direction:column;gap:5px}
+.tag{font:600 10px var(--mono);color:var(--mut);border:1px solid var(--line);border-radius:4px;padding:1px 4px;align-self:center}
+.score{min-width:130px}.score .muted{font-size:11px;width:34px;text-align:right}

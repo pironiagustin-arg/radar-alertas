@@ -93,7 +93,13 @@ function evaluate() {
     const g = groupOf(t);
     const r = scoreTicker(t, g, DATA.symbols[t.symbol], g.benchmark ? DATA.symbols[g.benchmark.toUpperCase()] : null);
     return { ticker: t, group: g, ...r };
-  }).sort((a, b) => (b.score ?? -99) - (a.score ?? -99) || (b.pct ?? 0) - (a.pct ?? 0));
+  });
+  sortResults();
+}
+let sortBy = localStorage.getItem(KEY + ':sort') || 'total';
+const scoreOf = (r) => (sortBy === 'total' ? r : r[sortBy]) || {};
+function sortResults() {
+  RESULTS.sort((a, b) => (scoreOf(b).score ?? -99) - (scoreOf(a).score ?? -99) || (scoreOf(b).pct ?? 0) - (scoreOf(a).pct ?? 0) || (b.score ?? -99) - (a.score ?? -99));
 }
 
 // Alertas: se disparan cuando una condición pasa de "no" a "sí" entre una actualización y otra
@@ -148,27 +154,43 @@ function renderRanking() {
   const el = $('#tab-ranking');
   if (!S.tickers.length) { el.innerHTML = '<div class="empty">Todavía no cargaste tickers. Andá a <b>Grupos</b>, creá uno y sumale acciones.</div>'; return; }
   const rows = RESULTS.filter((r) => filterGroup === 'all' || r.group.id === filterGroup);
-  const maxW = Math.max(1, ...RESULTS.map((r) => r.posMax || 0));
+  const maxT = Math.max(1, ...RESULTS.map((r) => r.tec?.posMax || 0)), maxF = Math.max(1, ...RESULTS.map((r) => r.fun?.posMax || 0));
+  const sortBtn = (k, l) => `<button class="sm ${sortBy === k ? 'primary' : ''}" data-sort="${k}">${l}</button>`;
   el.innerHTML = `
     <div class="row spread">
       <div class="chips">
         <span class="chip f ${filterGroup === 'all' ? 'on' : ''}" data-g="all">Todos (${S.tickers.length})</span>
         ${S.groups.map((g) => `<span class="chip f ${filterGroup === g.id ? 'on' : ''}" data-g="${g.id}" style="border-left:3px solid ${g.color}">${esc(g.name)} (${S.tickers.filter((t) => t.group === g.id).length})</span>`).join('')}
       </div>
-      <span class="muted">Score = peso de condiciones positivas cumplidas − peso de negativas activas</span>
+    </div>
+    <div class="row spread" style="margin-top:10px">
+      <div class="row"><span class="muted">Rankear por</span>${sortBtn('tec', 'Técnico (AT)')}${sortBtn('fun', 'Fundamental (AF)')}${sortBtn('total', 'Total')}</div>
+      <span class="muted">Score = peso de positivas cumplidas − peso de negativas activas · AF incluye tus objetivos</span>
     </div>
     <div class="tablewrap"><table>
-      <thead><tr><th>#</th><th>Ticker</th><th class="hide-m">Grupo</th><th style="text-align:right">Precio</th><th>Score</th><th>Cumple</th><th>Señales activas</th><th style="text-align:right">RSI</th><th style="text-align:right">vs EMA200</th><th style="text-align:right">A venta</th></tr></thead>
-      <tbody>${rows.map((r, i) => rowHtml(r, i, maxW)).join('') || '<tr><td colspan="10" class="muted">Sin tickers en este grupo</td></tr>'}</tbody>
+      <thead><tr><th>#</th><th>Ticker</th><th class="hide-m">Grupo</th><th style="text-align:right">Precio</th>
+        <th class="${sortBy === 'tec' ? 'sorted' : ''}">AT</th><th class="${sortBy === 'fun' ? 'sorted' : ''}">AF</th><th class="${sortBy === 'total' ? 'sorted' : ''}" style="text-align:right">Total</th>
+        <th>Señales activas</th><th style="text-align:right">RSI</th><th style="text-align:right">vs EMA200</th><th style="text-align:right">A venta</th></tr></thead>
+      <tbody>${rows.map((r, i) => rowHtml(r, i, maxT, maxF)).join('') || '<tr><td colspan="11" class="muted">Sin tickers en este grupo</td></tr>'}</tbody>
     </table></div>`;
   el.querySelectorAll('[data-g]').forEach((c) => (c.onclick = () => { filterGroup = c.dataset.g; renderRanking(); }));
+  el.querySelectorAll('[data-sort]').forEach((b) => (b.onclick = () => { sortBy = b.dataset.sort; localStorage.setItem(KEY + ':sort', sortBy); sortResults(); renderRanking(); }));
   el.querySelectorAll('tbody tr[data-s]').forEach((tr) => (tr.onclick = () => openDrawer(tr.dataset.s)));
 }
 
-function rowHtml(r, i, maxW) {
+function scoreCell(c, max) {
+  if (!c) return '<td>—</td>';
+  return `<td><div class="score"><b class="${c.score > 0 ? 'pos' : c.score < 0 ? 'neg' : ''}">${c.score}</b>
+    <div class="bar"><i style="width:${(c.pos / max) * 100}%"></i><u style="width:${Math.min(100, (c.neg / max) * 100)}%"></u></div>
+    <span class="muted mono">${c.metPos}/${c.totPos}</span></div></td>`;
+}
+
+function rowHtml(r, i, maxT, maxF) {
   const s = r.ticker.symbol;
-  if (r.error) return `<tr data-s="${s}"><td class="rank">${i + 1}</td><td class="sym">${s}</td><td colspan="8" class="muted">${esc(r.error)}</td></tr>`;
-  const met = r.rules.filter((x) => x.met);
+  if (r.error) return `<tr data-s="${s}"><td class="rank">${i + 1}</td><td class="sym">${s}</td><td colspan="9" class="muted">${esc(r.error)}</td></tr>`;
+  const met = r.rules.filter((x) => x.met).sort((a, b) => b.pol - a.pol || b.w - a.w);
+  const chips = (arr) => arr.map((x) => `<span class="chip ${x.pol > 0 ? 'p' : 'n'}">${esc(x.label)}</span>`).join('');
+  const at = met.filter((x) => x.cat === 'tec'), af = met.filter((x) => x.cat !== 'tec');
   const closest = r.targets.filter((x) => x.dVenta != null).sort((a, b) => a.dVenta - b.dVenta)[0];
   const name = r.f?.name || DATA.symbols[s]?.prices?.name || '';
   return `<tr data-s="${s}">
@@ -176,10 +198,9 @@ function rowHtml(r, i, maxW) {
     <td class="sym">${s}<small>${esc(name)}</small></td>
     <td class="hide-m"><span class="gtag" style="border-left-color:${r.group.color}">${esc(r.group.name)}</span></td>
     <td class="num">${fmt(r.t.price, 2)}</td>
-    <td><div class="score"><b class="${r.score > 0 ? 'pos' : r.score < 0 ? 'neg' : ''}">${r.score}</b>
-      <div class="bar"><i style="width:${(r.pos / maxW) * 100}%"></i><u style="width:${Math.min(100, (r.neg / maxW) * 100)}%"></u></div></div></td>
-    <td class="num">${r.metPos}/${r.totPos}</td>
-    <td><div class="chips">${met.sort((a, b) => b.pol - a.pol || b.w - a.w).map((x) => `<span class="chip ${x.pol > 0 ? 'p' : 'n'}">${esc(x.label)}</span>`).join('') || '<span class="muted">—</span>'}</div></td>
+    ${scoreCell(r.tec, maxT)}${scoreCell(r.fun, maxF)}
+    <td class="num"><b class="${r.score > 0 ? 'pos' : r.score < 0 ? 'neg' : ''}">${r.score}</b></td>
+    <td><div class="sig">${at.length ? `<div class="chips"><span class="tag">AT</span>${chips(at)}</div>` : ''}${af.length ? `<div class="chips"><span class="tag">AF</span>${chips(af)}</div>` : ''}${met.length ? '' : '<span class="muted">—</span>'}</div></td>
     <td class="num ${r.t.rsiNow > 70 ? 'neg' : r.t.rsiNow < 35 ? 'pos' : ''}">${fmt(r.t.rsiNow, 0)}</td>
     <td class="num">${sgn(r.t.d200)}</td>
     <td class="num ${closest?.hit ? 'neg' : ''}">${closest ? (closest.hit ? 'LLEGÓ' : sgn(closest.dVenta)) + `<br><span class="muted">${closest.label}</span>` : '—'}</td>
@@ -353,7 +374,7 @@ function renderDrawer(sym) {
       <button class="ghost" id="x">✕</button></div>
     <div class="kpis">
       <div class="kpi"><div class="k">Score</div><div class="v ${r.score > 0 ? 'pos' : r.score < 0 ? 'neg' : ''}">${r.score}</div></div>
-      <div class="kpi"><div class="k">Cumple</div><div class="v">${r.metPos}/${r.totPos}</div></div>
+      <div class="kpi"><div class="k">AT · AF</div><div class="v"><span class="${r.tec.score > 0 ? 'pos' : r.tec.score < 0 ? 'neg' : ''}">${r.tec.score}</span> · <span class="${r.fun.score > 0 ? 'pos' : r.fun.score < 0 ? 'neg' : ''}">${r.fun.score}</span></div></div>
       <div class="kpi"><div class="k">RSI</div><div class="v">${fmt(r.t.rsiNow, 0)}</div></div>
       <div class="kpi"><div class="k">Drawdown</div><div class="v">${sgn(r.t.dd)}</div></div>
       <div class="kpi"><div class="k">P/E fwd</div><div class="v">${fmt(f.forwardPE)}</div></div>
