@@ -1,26 +1,14 @@
 import { RULES, MARKET_RULES, TARGET_METRICS, defaultRules, defaultMarket, scoreTicker, evalMarket } from './engine.js';
+import DEFAULT_CONFIG from './default-config.js';
 
 // ───────────────────────── Estado ─────────────────────────
-const KEY = 'radar-alertas-v1';
+const KEY = 'radar-alertas-v2';
 const COLORS = ['#3b82f6', '#a855f7', '#22c55e', '#f59e0b', '#ec4899', '#14b8a6', '#ef4444', '#eab308'];
 const uid = () => Math.random().toString(36).slice(2, 9);
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function seed() {
-  const ia = { id: uid(), name: 'IA / Semis', benchmark: 'SMH', color: COLORS[0], rules: defaultRules() };
-  const cal = { id: uid(), name: 'Calidad', benchmark: 'SPY', color: COLORS[1], rules: defaultRules() };
-  ia.rules.fpe.p.max = 35; ia.rules.peg.p.max = 1.5; ia.rules.fpe_high.p.max = 60; ia.rules.stretched.p.max = 50;
-  cal.rules.fpe.p.max = 25; cal.rules.peg.p.max = 2; cal.rules.drawdown.p.min = 15;
-  return {
-    market: defaultMarket(), refreshMin: 15,
-    groups: [ia, cal],
-    tickers: [
-      ...['NVDA', 'AVGO', 'MU'].map((s) => ({ symbol: s, group: ia.id, targets: [], overrides: {} })),
-      ...['MSFT', 'GOOGL'].map((s) => ({ symbol: s, group: cal.id, targets: [], overrides: {} })),
-    ],
-  };
-}
+function seed() { return structuredClone(DEFAULT_CONFIG); }
 
 let S = load();
 let DATA = { symbols: {} }, RESULTS = [], MARKET = null;
@@ -41,7 +29,7 @@ function save() {
 }
 
 // ───────────────────────── Servidor (contraseña + sync) ─────────────────────────
-let PASS = localStorage.getItem(KEY + ':pass') || '';
+let PASS = localStorage.getItem(KEY + ':pass') || localStorage.getItem('radar-alertas-v1:pass') || '';
 let SERVER = { ok: false };
 export async function api(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'x-app-password': PASS, ...(opts.headers || {}) } });
