@@ -155,3 +155,5 @@ th.sorted{color:var(--acc2)}
 .score{min-width:130px}.score .muted{font-size:11px;width:34px;text-align:right}
 .rules .more{margin:4px 0 6px}.rules .more>summary{font-size:12px;color:var(--mut)}
 .rules .more .rule{opacity:.6}
+.fund tr.manual td:first-child{color:var(--acc2)}
+.fund input{width:90px}

@@ -240,7 +240,10 @@ export function defaultRules() {
 export function scoreTicker(ticker, group, data, benchData) {
   if (!data?.prices?.close?.length) return { error: data?.error || 'sin datos' };
   const t = technicals(data.prices, benchData?.prices);
-  const f = data.fund && !data.fund.error ? data.fund : {};
+  const auto = data.fund && !data.fund.error ? data.fund : {};
+  // valores cargados a mano por el usuario: pisan a los automáticos
+  const man = Object.fromEntries(Object.entries(ticker.fundOverrides || {}).filter(([, v]) => v != null && v !== '' && isFinite(v)).map(([k, v]) => [k, +v]));
+  const f = { ...auto, ...man, _manual: Object.keys(man) };
   const targets = evalTargets(t, f, ticker.targets);
   const ctx = { targets };
   const res = []; let pos = 0, neg = 0, posMax = 0, metPos = 0, totPos = 0;
@@ -295,3 +298,12 @@ export function evalMarket(cfg, spy, vix) {
   });
   return m;
 }
+
+// Métricas fundamentales editables a mano (clave en fund → etiqueta y unidad)
+export const FUND_FIELDS = [
+  ['forwardPE', 'P/E forward', 'x'], ['trailingPE', 'P/E ttm', 'x'], ['peg', 'PEG', 'x'], ['evEbitda', 'EV/EBITDA', 'x'], ['evSales', 'EV/Ventas', 'x'], ['pb', 'P/Book', 'x'],
+  ['divYield', 'Dividend yield', '%'], ['divYield5y', 'Yield promedio 5a', '%'], ['payout', 'Payout', '%'],
+  ['roe', 'ROE', '%'], ['efficiency', 'Efficiency ratio', '%'], ['grossMargin', 'Margen bruto', '%'], ['opMargin', 'Margen operativo', '%'],
+  ['revGrowth', 'Crecimiento ventas', '%'], ['epsYoY', 'Crecimiento EPS YoY', '%'], ['fcfYield', 'FCF yield', '%'], ['rule40', 'Regla del 40', ''],
+  ['debtEbitda', 'Deuda/EBITDA', 'x'], ['debtEquity', 'Deuda/Equity', 'x'], ['epsRev30', 'Revisión EPS 30d', '%'], ['epsRev90', 'Revisión EPS 90d', '%'],
+];

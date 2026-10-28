@@ -1,4 +1,4 @@
-import { RULES, MARKET_RULES, TARGET_METRICS, defaultRules, defaultMarket, scoreTicker, evalMarket } from './engine.js';
+import { FUND_FIELDS, RULES, MARKET_RULES, TARGET_METRICS, defaultRules, defaultMarket, scoreTicker, evalMarket } from './engine.js';
 import DEFAULT_CONFIG from './default-config.js';
 import { PROFILES, applyProfile } from './profiles.js';
 
@@ -392,11 +392,12 @@ function renderDrawer(sym) {
       <div class="kpi"><div class="k">RSI</div><div class="v">${fmt(r.t.rsiNow, 0)}</div></div>
       <div class="kpi"><div class="k">Drawdown</div><div class="v">${sgn(r.t.dd)}</div></div>
       ${(() => {
-        const key = r.rules.filter((x) => x.cat === 'fun' && x.pol > 0 && (PROFILES[r.group.profile]?.rules[x.id] || ['fpe', 'peg', 'evebitda', 'de'].includes(x.id))).slice(0, 4);
-        return key.map((x) => `<div class="kpi"><div class="k">${esc(x.label.replace(/ [≤≥]$/, ''))}</div><div class="v ${x.met ? 'pos' : ''}">${esc(String(x.val).split(' vs ')[0])}</div></div>`).join('');
+        const key = r.rules.filter((x) => x.cat === 'fun' && x.pol > 0 && x.id !== 'drawdown' && (PROFILES[r.group.profile]?.rules[x.id] || ['fpe', 'peg', 'evebitda', 'de'].includes(x.id))).slice(0, 4);
+        return key.map((x) => `<div class="kpi"><div class="k">${esc(x.label.replace(/ [≤≥]$/, ''))}</div><div class="v ${x.met ? 'pos' : ''}" style="font-size:${String(x.val).length > 9 ? 12 : 15}px">${esc(x.val)}</div></div>`).join('');
       })()}
     </div>
     ${chartSvg(r.t)}
+    ${fundTable(sym, r, tk)}
     <h4 style="margin:18px 0 6px">Objetivos: venta y promedio</h4>
     <div class="muted">Cargás tu número de venta (dispara alerta negativa al tocarlo) y el promedio de referencia para medir distancia.</div>
     <table class="tgt"><thead><tr><th>Métrica</th><th>Venta</th><th>Promedio</th><th style="text-align:right">Actual</th><th style="text-align:right">A venta</th><th style="text-align:right">vs prom.</th><th></th></tr></thead>
@@ -414,7 +415,14 @@ function renderDrawer(sym) {
     ${f.earnings?.length ? `<h4 style="margin:18px 0 6px">EPS vs estimado</h4><div class="chips">${f.earnings.map((e) => `<span class="chip ${e.surprise >= 0 ? 'p' : 'n'}">${e.q?.slice(0, 7)} · ${e.actual} vs ${e.est} (${sgn(e.surprise)})</span>`).join('')}</div>` : ''}
     ${f.nextEarnings ? `<p class="muted">Próximo reporte: ${f.nextEarnings}</p>` : ''}`;
   $('#x', el).onclick = closeDrawer;
-  el.querySelectorAll('.tgt input').forEach((inp) => inp.addEventListener('change', () => {
+  el.querySelectorAll('[data-fo]').forEach((inp) => inp.addEventListener('change', () => {
+    tk.fundOverrides ||= {};
+    const v = inp.value.trim().replace(',', '.');
+    if (v === '') delete tk.fundOverrides[inp.dataset.fo]; else tk.fundOverrides[inp.dataset.fo] = +v;
+    save(); evaluate(); render(); toast(v === '' ? 'Vuelve al dato automático' : 'Valor manual guardado');
+  }));
+  el.querySelectorAll('[data-foclr]').forEach((b) => (b.onclick = () => { delete tk.fundOverrides[b.dataset.foclr]; save(); evaluate(); render(); }));
+  el.querySelectorAll('.tgt:not(.fund) input').forEach((inp) => inp.addEventListener('change', () => {
     const v = inp.value === '' ? null : +inp.value; tk.targets[+inp.dataset.i][inp.dataset.k] = v; save(); evaluate(); render();
   }));
   el.querySelectorAll('[data-del]').forEach((b) => (b.onclick = () => { tk.targets.splice(+b.dataset.del, 1); save(); evaluate(); render(); }));
@@ -645,4 +653,30 @@ async function uploadTheses(files) {
     try { PROFILE = (await api('/api/thesis', { method: 'POST', body: JSON.stringify({ action: 'rebuild_profile' }) })).profile; } catch (e) { toast('Perfil: ' + e.message); }
     renderTesis();
   }
+}
+
+
+// ───────────────────────── Métricas fundamentales editables ─────────────────────────
+// qué campo usa cada regla (para mostrar primero las relevantes del grupo)
+const RULE_FIELD = { fpe: 'forwardPE', fpe_high: 'forwardPE', peg: 'peg', evebitda: 'evEbitda', de: 'debtEquity', div_range: 'divYield', div_vs_avg: 'divYield5y', payout_range: 'payout', payout_high: 'payout', efficiency: 'efficiency', roe: 'roe', pb: 'pb', op_margin: 'opMargin', gross_margin: 'grossMargin', rev_growth: 'revGrowth', rev_decline: 'revGrowth', fcf_yield: 'fcfYield', debt_ebitda: 'debtEbitda', ev_sales: 'evSales', rule40: 'rule40', eps_rev_up: 'epsRev90', eps_rev_down: 'epsRev30', eps_gap: 'epsYoY', price_ahead: 'epsYoY' };
+
+function fundTable(sym, r, tk) {
+  const auto = DATA.symbols[sym]?.fund || {};
+  const man = tk.fundOverrides || {};
+  const used = new Set(r.rules.filter((x) => x.cat === 'fun').map((x) => RULE_FIELD[x.id]).filter(Boolean));
+  if (used.has('divYield5y')) used.add('divYield');
+  const row = ([k, label, unit]) => {
+    const a = auto[k], m = man[k];
+    const fa = a == null ? '—' : (+a).toFixed(unit === '%' ? 1 : 2) + (unit === '%' ? '%' : unit);
+    return `<tr${m != null ? ' class="manual"' : ''}><td>${label}${m != null ? ' <span title="Valor tuyo">✎</span>' : ''}</td>
+      <td class="num muted">${fa}</td>
+      <td><input type="text" inputmode="decimal" data-fo="${k}" value="${m ?? ''}" placeholder="${a == null ? 'cargar' : 'igual'}"></td>
+      <td>${m != null ? `<button class="sm ghost" data-foclr="${k}" title="Volver al automático">↺</button>` : ''}</td></tr>`;
+  };
+  const main = FUND_FIELDS.filter(([k]) => used.has(k)), rest = FUND_FIELDS.filter(([k]) => !used.has(k));
+  const head = '<thead><tr><th>Métrica</th><th style="text-align:right">Automático</th><th>Tu valor</th><th></th></tr></thead>';
+  return `<h4 style="margin:18px 0 6px">Métricas fundamentales</h4>
+    <div class="muted">Automático = Yahoo Finance (FCF y efficiency calculados de los estados contables). Si un dato no coincide con tu fuente, cargá el tuyo: pisa al automático en el ranking y en los avisos. Porcentajes como número (45 = 45%).</div>
+    <table class="tgt fund">${head}<tbody>${main.map(row).join('')}</tbody></table>
+    <details class="collapse"><summary>Otras métricas (${rest.length})</summary><table class="tgt fund">${head}<tbody>${rest.map(row).join('')}</tbody></table></details>`;
 }
