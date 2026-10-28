@@ -20,8 +20,9 @@ export default async function handler(req, res) {
         await kvSet('analyst_profile', { ...p, notes: b.notes || '' });
         return send(res, 200, { profile: await rebuildProfile() });
       }
-      if (!b.text && !b.pdf) return send(res, 400, { error: 'Mandá texto o un PDF' });
-      return send(res, 200, await ingestThesis({ text: b.text, pdfBase64: b.pdf, filename: b.filename }));
+      if (b.action === 'rebuild_profile') return send(res, 200, { profile: await rebuildProfile() });
+      if (!b.text && !b.pdf && !b.images?.length) return send(res, 400, { error: 'Mandá texto, un PDF o páginas' });
+      return send(res, 200, await ingestThesis({ text: b.text, pdfBase64: b.pdf, images: b.images || [], filename: b.filename }));
     }
     if (req.method === 'DELETE') {
       const id = +url.searchParams.get('id');

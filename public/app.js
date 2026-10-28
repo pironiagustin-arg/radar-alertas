@@ -578,21 +578,54 @@ function renderTesis() {
 
 const toB64 = (file) => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = ko; r.readAsDataURL(file); });
 
+// Lee el PDF en el navegador: texto + páginas renderizadas como imagen (sirve para carruseles)
+let pdfjs = null;
+async function readPdf(file, maxPages = 12) {
+  if (!pdfjs) {
+    pdfjs = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+  }
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  let text = ''; const images = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const tc = await page.getTextContent();
+    text += `\n--- Página ${i} ---\n` + tc.items.map((x) => x.str).join(' ');
+    if (i <= maxPages) {
+      const vp0 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: Math.min(2, 1100 / Math.max(vp0.width, vp0.height)) });
+      const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+      images.push({ media_type: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.72).split(',')[1] });
+    }
+  }
+  const words = text.replace(/--- Página \d+ ---/g, '').trim().split(/\s+/).length;
+  // si tiene mucho texto, no hace falta mandar todas las imágenes
+  return { text, images: words > 1500 ? images.slice(0, 3) : images, pages: doc.numPages };
+}
+
 async function uploadTheses(files) {
   const st = $('#thStatus');
+  let ok = 0;
   for (const f of files) {
-    st.textContent = `Procesando ${f.name}… (puede tardar 30-60 s)`;
     try {
       let body;
       if (f.text && !(f instanceof File)) body = { text: f.text, filename: f.name };
       else if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
-        if (f.size > 4.2e6) throw new Error('PDF de más de 4 MB: comprimilo o pegá el texto');
-        body = { pdf: await toB64(f), filename: f.name };
+        st.textContent = `Leyendo ${f.name}…`;
+        const r = await readPdf(f);
+        body = { text: r.text, images: r.images, filename: f.name };
       } else body = { text: await f.text(), filename: f.name };
+      st.textContent = `Analizando ${f.name} con la IA… (30-60 s)`;
       const r = await api('/api/thesis', { method: 'POST', body: JSON.stringify(body) });
-      THESES = [{ ...r.thesis, created_at: new Date().toISOString() }, ...THESES]; PROFILE = r.profile;
-      toast(`${r.thesis.ticker || f.name}: tesis cargada, ${r.metrics} métricas guardadas`);
-    } catch (e) { toast(`${f.name}: ${e.message}`); }
+      THESES = [{ ...r.thesis, created_at: new Date().toISOString() }, ...THESES]; ok++;
+      toast(`${r.thesis.ticker}: tesis cargada, ${r.metrics} métricas guardadas`);
+      renderTesis();
+    } catch (e) { toast(`${f.name}: ${e.message}`); st.textContent = `⚠️ ${f.name}: ${e.message}`; }
   }
-  renderTesis();
+  if (ok) {
+    $('#thStatus').textContent = 'Actualizando tu perfil de análisis…';
+    try { PROFILE = (await api('/api/thesis', { method: 'POST', body: JSON.stringify({ action: 'rebuild_profile' }) })).profile; } catch (e) { toast('Perfil: ' + e.message); }
+    renderTesis();
+  }
 }
