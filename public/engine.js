@@ -186,8 +186,8 @@ export const RULES = {
     eval: (t, f, c, p) => ({ met: f.epsRev90 == null ? null : f.epsRev90 >= p.pct, val: pct(f.epsRev90) }) },
   payout_high: { cat: 'fun', pol: -1, w: 2, off: 1, label: 'Payout insostenible', p: { max: 90 },
     eval: (t, f, c, p) => (f.payout == null ? { met: null, val: '—' } : { met: f.payout > p.max, val: f.payout.toFixed(0) + '%' }) },
-  rev_decline: { cat: 'fun', pol: -1, w: 2, off: 1, label: 'Ventas cayendo', p: { max: 0 },
-    eval: (t, f, c, p) => (f.revGrowth == null ? { met: null, val: '—' } : { met: f.revGrowth < p.max, val: pct(f.revGrowth) }) },
+  rev_decline: { cat: 'fun', pol: -1, w: 2, off: 1, label: 'Ventas desaceleran', p: { margen: 5 }, hint: 'crecimiento del último trimestre (YoY) vs el del último año fiscal: resta si cae más de margen pp',
+    eval: (t, f, c, p) => { if (f.revGrowth == null || f.revGrowthFY == null) return { met: null, val: '—' }; const d = f.revGrowth - f.revGrowthFY; return { met: d < -p.margen, val: `trim. ${pct(f.revGrowth)} vs año ${pct(f.revGrowthFY)}` }; } },
 
   // ── Fundamentals negativos
   miss: { cat: 'fun', pol: -1, w: 2, tg: 1, label: 'Earnings bajo estimado', p: {}, hint: 'último trimestre no llegó al estimado',
@@ -304,6 +304,6 @@ export const FUND_FIELDS = [
   ['forwardPE', 'P/E forward', 'x'], ['trailingPE', 'P/E ttm', 'x'], ['peg', 'PEG', 'x'], ['evEbitda', 'EV/EBITDA', 'x'], ['evSales', 'EV/Ventas', 'x'], ['pb', 'P/Book', 'x'],
   ['divYield', 'Dividend yield', '%'], ['divYield5y', 'Yield promedio 5a', '%'], ['payout', 'Payout', '%'],
   ['roe', 'ROE', '%'], ['efficiency', 'Efficiency ratio', '%'], ['grossMargin', 'Margen bruto', '%'], ['opMargin', 'Margen operativo', '%'],
-  ['revGrowth', 'Crecimiento ventas', '%'], ['epsYoY', 'Crecimiento EPS YoY', '%'], ['fcfYield', 'FCF yield', '%'], ['rule40', 'Regla del 40', ''],
+  ['revGrowth', 'Crecimiento ventas (trim. YoY)', '%'], ['revGrowthFY', 'Crecimiento ventas (último año)', '%'], ['epsYoY', 'Crecimiento EPS YoY', '%'], ['fcfYield', 'FCF yield', '%'], ['rule40', 'Regla del 40', ''],
   ['debtEbitda', 'Deuda/EBITDA', 'x'], ['debtEquity', 'Deuda/Equity', 'x'], ['epsRev30', 'Revisión EPS 30d', '%'], ['epsRev90', 'Revisión EPS 90d', '%'],
 ];

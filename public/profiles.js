@@ -8,7 +8,7 @@ export const COMMON = ['beat', 'miss', 'eps_rev_down', 'insider', 'earnings_soon
 export const PROFILES = {
   defensiva: {
     label: 'Defensiva / dividendos', desc: 'Rol: renta y estabilidad. Busca yield alto y sostenible, y precio atrasado vs su yield histórico.',
-    rules: { div_range: { w: 3, p: { min: 2, max: 7 } }, div_vs_avg: { w: 3, p: { margen: 0 } }, payout_range: { w: 2, p: { min: 60, max: 75 } }, payout_high: { w: 2, p: { max: 90 } }, fpe: { w: 2, p: { max: 22 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 1, p: { max: 0 } }, drawdown: { w: 2, p: { min: 15 } } },
+    rules: { div_range: { w: 3, p: { min: 2, max: 7 } }, div_vs_avg: { w: 3, p: { margen: 0 } }, payout_range: { w: 2, p: { min: 60, max: 75 } }, payout_high: { w: 2, p: { max: 90 } }, fpe: { w: 2, p: { max: 22 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 1, p: { margen: 5 } }, drawdown: { w: 2, p: { min: 15 } } },
   },
   banco: {
     label: 'Banco / financiera', desc: 'Rol: valor cíclico. Eficiencia, rentabilidad sobre patrimonio y precio vs libros.',
@@ -16,19 +16,19 @@ export const PROFILES = {
   },
   pagos: {
     label: 'Redes de pago', desc: 'Rol: compounder de calidad. Márgenes altísimos, crecimiento estable y caja.',
-    rules: { op_margin: { w: 2, p: { min: 40 } }, rev_growth: { w: 2, p: { min: 10 } }, fcf_yield: { w: 2, p: { min: 3 } }, peg: { w: 2, p: { max: 2 } }, fpe: { w: 2, p: { max: 28 } }, fpe_high: { w: 1, p: { max: 40 } }, rev_decline: { w: 2, p: { max: 0 } } },
+    rules: { op_margin: { w: 2, p: { min: 40 } }, rev_growth: { w: 2, p: { min: 10 } }, fcf_yield: { w: 2, p: { min: 3 } }, peg: { w: 2, p: { max: 2 } }, fpe: { w: 2, p: { max: 28 } }, fpe_high: { w: 1, p: { max: 40 } }, rev_decline: { w: 2, p: { margen: 5 } } },
   },
   energia: {
     label: 'Energía / utilities', desc: 'Rol: demanda eléctrica de la IA. Apalancamiento controlado, EV/EBITDA y crecimiento.',
-    rules: { debt_ebitda: { w: 2, p: { max: 3.5 } }, evebitda: { w: 2, p: { max: 15 } }, rev_growth: { w: 2, p: { min: 10 } }, fcf_yield: { w: 1, p: { min: 3 } }, peg: { w: 2, p: { max: 1.5 } }, fpe: { w: 1, p: { max: 25 } }, rev_decline: { w: 2, p: { max: 0 } } },
+    rules: { debt_ebitda: { w: 2, p: { max: 3.5 } }, evebitda: { w: 2, p: { max: 15 } }, rev_growth: { w: 2, p: { min: 10 } }, fcf_yield: { w: 1, p: { min: 3 } }, peg: { w: 2, p: { max: 1.5 } }, fpe: { w: 1, p: { max: 25 } }, rev_decline: { w: 2, p: { margen: 5 } } },
   },
   plataforma: {
     label: 'Plataforma / contenido', desc: 'Rol: crecimiento rentable. Ventas creciendo, margen operativo en expansión y caja.',
-    rules: { rev_growth: { w: 2, p: { min: 15 } }, op_margin: { w: 2, p: { min: 15 } }, fcf_yield: { w: 2, p: { min: 3 } }, peg: { w: 2, p: { max: 1.5 } }, fpe: { w: 1, p: { max: 30 } }, fpe_high: { w: 1, p: { max: 60 } }, rev_decline: { w: 2, p: { max: 0 } } },
+    rules: { rev_growth: { w: 2, p: { min: 15 } }, op_margin: { w: 2, p: { min: 15 } }, fcf_yield: { w: 2, p: { min: 3 } }, peg: { w: 2, p: { max: 1.5 } }, fpe: { w: 1, p: { max: 30 } }, fpe_high: { w: 1, p: { max: 60 } }, rev_decline: { w: 2, p: { margen: 5 } } },
   },
   salud: {
     label: 'Salud', desc: 'Rol: defensiva con crecimiento. Valuación, caja y yield vs su historia.',
-    rules: { fpe: { w: 2, p: { max: 20 } }, peg: { w: 2, p: { max: 1.5 } }, fcf_yield: { w: 2, p: { min: 4 } }, div_vs_avg: { w: 2, p: { margen: 0 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 2, p: { max: 0 } } },
+    rules: { fpe: { w: 2, p: { max: 20 } }, peg: { w: 2, p: { max: 1.5 } }, fcf_yield: { w: 2, p: { min: 4 } }, div_vs_avg: { w: 2, p: { margen: 0 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 2, p: { margen: 5 } } },
   },
   industrial: {
     label: 'Industrial', desc: 'Rol: cíclica de calidad. EV/EBITDA, márgenes, caja y deuda.',
@@ -44,7 +44,7 @@ export const PROFILES = {
   },
   software: {
     label: 'Software', desc: 'Rol: alto crecimiento. Regla del 40, EV/Ventas y margen bruto (el P/E suele no aplicar).',
-    rules: { rule40: { w: 3, p: { min: 40 } }, ev_sales: { w: 2, p: { max: 15 } }, rev_growth: { w: 2, p: { min: 20 } }, gross_margin: { w: 1, p: { min: 70 } }, peg: { w: 2, p: { max: 1.5 } }, fpe_high: { w: 1, p: { max: 80 } }, rev_decline: { w: 2, p: { max: 0 } } },
+    rules: { rule40: { w: 3, p: { min: 40 } }, ev_sales: { w: 2, p: { max: 15 } }, rev_growth: { w: 2, p: { min: 20 } }, gross_margin: { w: 1, p: { min: 70 } }, peg: { w: 2, p: { max: 1.5 } }, fpe_high: { w: 1, p: { max: 80 } }, rev_decline: { w: 2, p: { margen: 5 } } },
   },
   fintech: {
     label: 'Fintech / Fast Grower', desc: 'Rol: crecimiento alto. ROE, ventas, PEG y eficiencia.',

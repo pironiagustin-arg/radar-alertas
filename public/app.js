@@ -318,7 +318,7 @@ function renderGroups() {
     keyed.innerHTML = `<h4>Métricas del grupo</h4>
       ${keys.map(([id, r]) => `<div class="krow"><span class="pol ${RULES[id].pol > 0 ? 'p' : 'n'}">${RULES[id].pol > 0 ? '+' : '−'}</span>
         <span class="kl">${RULES[id].label.replace(/ [≤≥]$/, '')}</span>
-        <span class="kp">${Object.keys(RULES[id].p).map((k) => `<label>${k === 'max' ? (RULES[id].label.includes('≥') ? '≥' : id === 'rev_decline' ? '<' : RULES[id].pol < 0 ? '>' : '≤') : k === 'min' ? '≥' : k}<input type="number" step="any" value="${r.p?.[k] ?? RULES[id].p[k]}" data-kp="${id}:${k}"></label>`).join(' ')}</span>
+        <span class="kp">${Object.keys(RULES[id].p).map((k) => `<label>${k === 'max' ? (RULES[id].label.includes('≥') ? '≥' : RULES[id].pol < 0 ? '>' : '≤') : k === 'min' ? '≥' : k}<input type="number" step="any" value="${r.p?.[k] ?? RULES[id].p[k]}" data-kp="${id}:${k}"></label>`).join(' ')}</span>
         <label class="muted">peso<input type="number" value="${r.w}" data-kw="${id}"></label>
         <button class="sm ghost" data-koff="${id}" title="Quitar">✕</button></div>`).join('') || '<div class="muted">Sin métricas propias. Elegí un tipo de empresa o agregá una.</div>'}
       ${avail.length ? `<div class="row" style="margin-top:6px"><select data-kadd><option value="">+ Agregar métrica…</option>${avail.map(([id, d]) => `<option value="${id}">${d.pol < 0 ? '(−) ' : ''}${d.label}</option>`).join('')}</select></div>` : ''}`;
@@ -483,7 +483,7 @@ function ruleText(id, p) {
   const d = RULES[id]; const u = /yield|payout|efficiency|margin|growth|roe|drawdown|div|rule40|rev|eps/.test(id) && id !== 'rule40' ? '%' : '';
   if (p.min != null && p.max != null) return `${p.min}–${p.max}${u}`;
   if (id === 'div_vs_avg') return 'yield actual ≥ este';
-  if (id === 'rev_decline') return '< 0%';
+  if (id === 'rev_decline') return `trim. < año − ${p.margen}pp`;
   const op = /[≤≥]/.exec(d.label)?.[0] || (p.max != null ? (d.pol < 0 ? '>' : '≤') : '≥');
   const v = p.max ?? p.min ?? p.pct;
   return v != null ? `${op} ${v}${u}` : '';
@@ -726,7 +726,7 @@ async function uploadTheses(files) {
 
 // ───────────────────────── Métricas fundamentales editables ─────────────────────────
 // qué campo usa cada regla (para mostrar primero las relevantes del grupo)
-const RULE_FIELD = { fpe: 'forwardPE', fpe_high: 'forwardPE', peg: 'peg', evebitda: 'evEbitda', de: 'debtEquity', div_range: 'divYield', div_vs_avg: 'divYield5y', payout_range: 'payout', payout_high: 'payout', efficiency: 'efficiency', roe: 'roe', pb: 'pb', op_margin: 'opMargin', gross_margin: 'grossMargin', rev_growth: 'revGrowth', rev_decline: 'revGrowth', fcf_yield: 'fcfYield', debt_ebitda: 'debtEbitda', ev_sales: 'evSales', rule40: 'rule40', eps_rev_up: 'epsRev90', eps_rev_down: 'epsRev30', eps_gap: 'epsYoY', price_ahead: 'epsYoY' };
+const RULE_FIELD = { fpe: 'forwardPE', fpe_high: 'forwardPE', peg: 'peg', evebitda: 'evEbitda', de: 'debtEquity', div_range: 'divYield', div_vs_avg: 'divYield5y', payout_range: 'payout', payout_high: 'payout', efficiency: 'efficiency', roe: 'roe', pb: 'pb', op_margin: 'opMargin', gross_margin: 'grossMargin', rev_growth: 'revGrowth', rev_decline: 'revGrowthFY', fcf_yield: 'fcfYield', debt_ebitda: 'debtEbitda', ev_sales: 'evSales', rule40: 'rule40', eps_rev_up: 'epsRev90', eps_rev_down: 'epsRev30', eps_gap: 'epsYoY', price_ahead: 'epsYoY' };
 
 function fundTable(sym, r, tk, keyIds = []) {
   const auto = DATA.symbols[sym]?.fund || {};
