@@ -32,7 +32,7 @@ export const PROFILES = {
   },
   neocloud: {
     label: 'Neocloud / infra IA', desc: 'Rol: apuesta de alto crecimiento con mucha deuda. Importa crecer rápido sin quedarse sin caja ni diluir de más; el P/E no aplica.',
-    rules: { rev_growth: { w: 3, p: { min: 50 } }, ev_sales: { w: 2, p: { max: 15 } }, gross_margin: { w: 1, p: { min: 40 } }, cash_debt: { w: 2, p: { min: 30 } }, current_ratio: { w: 1, p: { min: 1 } }, debt_mcap: { w: 1, p: { max: 60 } }, dilution: { w: 2, p: { max: 10 } } },
+    rules: { ev_arr: { w: 3, p: { max: 8 } }, ev_gw: { w: 2, p: { max: 15 } }, rev_growth: { w: 2, p: { min: 50 } }, ev_sales: { w: 1, p: { max: 15 } }, gross_margin: { w: 1, p: { min: 40 } }, cash_debt: { w: 2, p: { min: 30 } }, current_ratio: { w: 1, p: { min: 1 } }, debt_mcap: { w: 1, p: { max: 60 } }, dilution: { w: 2, p: { max: 10 } } },
   },
   ciber: {
     label: 'Ciberseguridad', desc: 'Rol: software de crecimiento recurrente. Regla del 40, EV/Ventas, margen bruto y caja.',

@@ -507,6 +507,8 @@ function ruleText(id, p) {
   const d = RULES[id]; const u = /yield|payout|efficiency|margin|growth|roe|drawdown|div|rule40|rev|eps/.test(id) && id !== 'rule40' ? '%' : '';
   if (p.min != null && p.max != null) return `${p.min}–${p.max}${u}`;
   if (id === 'div_vs_avg') return 'yield actual ≥ este';
+  if (id === 'ev_arr') return `EV/ARR ≤ ${p.max}x`;
+  if (id === 'ev_gw') return `≤ US$${p.max}bn/GW`;
   if (id === 'rev_decline') return `alerta si trim. < año − ${p.margen}pp`;
   const op = /[≤≥]/.exec(d.label)?.[0] || (p.max != null ? (d.pol < 0 ? '>' : '≤') : '≥');
   const v = p.max ?? p.min ?? p.pct;
@@ -521,6 +523,12 @@ function keyRow(x, sym, tk) {
   const st = x.met == null ? '<span class="st nd">s/d</span>' : x.met ? `<span class="st ${x.pol > 0 ? 'y' : 'yn'}">${x.pol > 0 ? '✔' : '⚠'}</span>` : `<span class="st no">${x.pol > 0 ? '✘' : 'ok'}</span>`;
   const inp = (fld, lbl) => { const a = DATA.symbols[sym]?.fund?.[fld], m = tk.fundOverrides?.[fld], c = m ?? a;
     return `<label class="mini">${lbl}<input type="text" inputmode="decimal" data-fo="${fld}" value="${c == null ? '' : +(+c).toFixed(2)}" placeholder="cargar"${m != null ? ' class="man"' : ''}></label>`; };
+  if (x.id === 'ev_arr' || x.id === 'ev_gw') {
+    const k = x.id === 'ev_arr' ? 'arrProj' : 'gwTotal';
+    const src = tk.kpiSrc?.[k];
+    return `<tr><td>${esc(x.label.replace(/ [≤≥]$/, ''))}${src ? `<div class="muted" style="font-size:11px">${esc(src)}</div>` : ''}</td>
+      <td>${inp(k, x.id === 'ev_arr' ? 'ARR US$bn' : 'GW')} <span class="mono muted">→ ${esc(x.val)}</span></td><td class="muted">${esc(ruleText(x.id, p))}</td><td>${st}</td></tr>`;
+  }
   if (x.id === 'rev_decline') {
     return `<tr><td>${esc(x.label)}</td><td>${inp('revGrowth', 'trim.')} ${inp('revGrowthFY', 'año')}</td><td class="muted">${esc(ruleText(x.id, p))}</td><td>${st}</td></tr>`;
   }
@@ -755,7 +763,7 @@ async function uploadTheses(files) {
 
 // ───────────────────────── Métricas fundamentales editables ─────────────────────────
 // qué campo usa cada regla (para mostrar primero las relevantes del grupo)
-const RULE_FIELD = { fpe: 'forwardPE', fpe_high: 'forwardPE', peg: 'peg', evebitda: 'evEbitda', de: 'debtEquity', div_range: 'divYield', div_vs_avg: 'divYield5y', payout_range: 'payout', payout_high: 'payout', efficiency: 'efficiency', roe: 'roe', pb: 'pb', op_margin: 'opMargin', gross_margin: 'grossMargin', rev_growth: 'revGrowth', rev_decline: 'revGrowthFY', fcf_yield: 'fcfYield', debt_ebitda: 'debtEbitda', ev_sales: 'evSales', rule40: 'rule40', cash_debt: 'cashDebt', debt_mcap: 'debtMcap', current_ratio: 'currentRatio', dilution: 'sharesYoY', eps_rev_up: 'epsRev90', eps_rev_down: 'epsRev30', eps_gap: 'epsYoY', price_ahead: 'epsYoY' };
+const RULE_FIELD = { fpe: 'forwardPE', fpe_high: 'forwardPE', peg: 'peg', evebitda: 'evEbitda', de: 'debtEquity', div_range: 'divYield', div_vs_avg: 'divYield5y', payout_range: 'payout', payout_high: 'payout', efficiency: 'efficiency', roe: 'roe', pb: 'pb', op_margin: 'opMargin', gross_margin: 'grossMargin', rev_growth: 'revGrowth', rev_decline: 'revGrowthFY', fcf_yield: 'fcfYield', debt_ebitda: 'debtEbitda', ev_sales: 'evSales', rule40: 'rule40', ev_arr: 'arrProj', ev_gw: 'gwTotal', cash_debt: 'cashDebt', debt_mcap: 'debtMcap', current_ratio: 'currentRatio', dilution: 'sharesYoY', eps_rev_up: 'epsRev90', eps_rev_down: 'epsRev30', eps_gap: 'epsYoY', price_ahead: 'epsYoY' };
 
 function fundTable(sym, r, tk, keyIds = []) {
   const auto = DATA.symbols[sym]?.fund || {};
@@ -789,7 +797,7 @@ const BASE_METRICS = [
   ['_dd', 'Drawdown 52s %', (r) => r.t.dd, 0], ['_yoy', 'Var. precio 12m %', (r) => r.t.priceYoY, 0],
 ];
 // 1 = más alto mejor, -1 = más bajo mejor, 0 = sin color
-const BETTER = { cashDebt: 1, debtMcap: -1, currentRatio: 1, sharesYoY: -1, forwardPE: -1, trailingPE: -1, peg: -1, evEbitda: -1, evSales: -1, pb: -1, debtEbitda: -1, debtEquity: -1, efficiency: -1, divYield: 1, roe: 1, grossMargin: 1, opMargin: 1, revGrowth: 1, revGrowthFY: 1, epsYoY: 1, fcfYield: 1, rule40: 1, epsRev30: 1, epsRev90: 1 };
+const BETTER = { arrProj: 1, gwTotal: 1, cashDebt: 1, debtMcap: -1, currentRatio: 1, sharesYoY: -1, forwardPE: -1, trailingPE: -1, peg: -1, evEbitda: -1, evSales: -1, pb: -1, debtEbitda: -1, debtEquity: -1, efficiency: -1, divYield: 1, roe: 1, grossMargin: 1, opMargin: 1, revGrowth: 1, revGrowthFY: 1, epsYoY: 1, fcfYield: 1, rule40: 1, epsRev30: 1, epsRev90: 1 };
 
 function openCompare() {
   const rs = [...SEL].map((s) => RESULTS.find((r) => r.ticker.symbol === s)).filter((r) => r && !r.error);

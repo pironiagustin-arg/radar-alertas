@@ -192,6 +192,10 @@ export const RULES = {
     eval: (t, f, c, p) => (f.currentRatio == null ? { met: null, val: '—' } : { met: f.currentRatio >= p.min, val: f.currentRatio.toFixed(2) + 'x' }) },
   dilution: { cat: 'fun', pol: -1, w: 2, off: 1, label: 'Dilución alta', p: { max: 10 }, hint: 'acciones en circulación: suba interanual mayor a max%',
     eval: (t, f, c, p) => (f.sharesYoY == null ? { met: null, val: '—' } : { met: f.sharesYoY > p.max, val: pct(f.sharesYoY) }) },
+  ev_arr: { cat: 'fun', pol: 1, w: 3, off: 1, label: 'EV / ARR proyectado ≤', p: { max: 8 }, hint: 'ARR proyectado (USD bn) lo cargás vos en la ficha',
+    eval: (t, f, c, p) => (f.evArr == null ? { met: null, val: f.arrProj ? 'falta EV' : 'cargá el ARR' } : { ...rangeDown(f.evArr, p.max, (x) => x.toFixed(1) + 'x') }) },
+  ev_gw: { cat: 'fun', pol: 1, w: 2, off: 1, label: 'EV por GW ≤', p: { max: 15 }, hint: 'USD bn de EV por cada GW de capacidad total (los GW los cargás vos)',
+    eval: (t, f, c, p) => (f.evGw == null ? { met: null, val: f.gwTotal ? 'falta EV' : 'cargá los GW' } : { ...rangeDown(f.evGw, p.max, (x) => 'US$' + x.toFixed(1) + 'bn/GW') }) },
   payout_high: { cat: 'fun', pol: -1, w: 2, off: 1, label: 'Payout insostenible', p: { max: 90 },
     eval: (t, f, c, p) => (f.payout == null ? { met: null, val: '—' } : { met: f.payout > p.max, val: f.payout.toFixed(0) + '%' }) },
   rev_decline: { cat: 'fun', pol: -1, w: 2, off: 1, label: 'Ventas desaceleran', p: { margen: 5 }, hint: 'crecimiento del último trimestre (YoY) vs el del último año fiscal: resta si cae más de margen pp',
@@ -252,6 +256,9 @@ export function scoreTicker(ticker, group, data, benchData) {
   // valores cargados a mano por el usuario: pisan a los automáticos
   const man = Object.fromEntries(Object.entries(ticker.fundOverrides || {}).filter(([, v]) => v != null && v !== '' && isFinite(v)).map(([k, v]) => [k, +v]));
   const f = { ...auto, ...man, _manual: Object.keys(man) };
+  // KPIs operativos cargados a mano (neoclouds): múltiplos sobre ARR proyectado y capacidad en GW
+  if (f.ev > 0 && f.arrProj > 0) f.evArr = Math.round((f.ev / f.arrProj) * 100) / 100;
+  if (f.ev > 0 && f.gwTotal > 0) f.evGw = Math.round((f.ev / f.gwTotal) * 100) / 100;
   const targets = evalTargets(t, f, ticker.targets);
   const ctx = { targets };
   const res = []; let pos = 0, neg = 0, posMax = 0, metPos = 0, totPos = 0;
@@ -313,5 +320,5 @@ export const FUND_FIELDS = [
   ['divYield', 'Dividend yield', '%'], ['divYield5y', 'Yield promedio 5a', '%'], ['payout', 'Payout', '%'],
   ['roe', 'ROE', '%'], ['efficiency', 'Efficiency ratio', '%'], ['grossMargin', 'Margen bruto', '%'], ['opMargin', 'Margen operativo', '%'],
   ['revGrowth', 'Crecimiento ventas (trim. YoY)', '%'], ['revGrowthFY', 'Crecimiento ventas (último año)', '%'], ['epsYoY', 'Crecimiento EPS YoY', '%'], ['fcfYield', 'FCF yield', '%'], ['rule40', 'Regla del 40', ''],
-  ['debtEbitda', 'Deuda/EBITDA', 'x'], ['cashDebt', 'Caja / Deuda', '%'], ['debtMcap', 'Deuda / Market cap', '%'], ['currentRatio', 'Liquidez corriente', 'x'], ['sharesYoY', 'Dilución (acciones YoY)', '%'], ['debtEquity', 'Deuda/Equity', 'x'], ['epsRev30', 'Revisión EPS 30d', '%'], ['epsRev90', 'Revisión EPS 90d', '%'],
+  ['debtEbitda', 'Deuda/EBITDA', 'x'], ['cashDebt', 'Caja / Deuda', '%'], ['debtMcap', 'Deuda / Market cap', '%'], ['currentRatio', 'Liquidez corriente', 'x'], ['ev', 'Enterprise value (USD bn)', ''], ['arrProj', 'ARR proyectado (USD bn)', ''], ['gwTotal', 'Capacidad total (GW)', ''], ['sharesYoY', 'Dilución (acciones YoY)', '%'], ['debtEquity', 'Deuda/Equity', 'x'], ['epsRev30', 'Revisión EPS 30d', '%'], ['epsRev90', 'Revisión EPS 90d', '%'],
 ];
