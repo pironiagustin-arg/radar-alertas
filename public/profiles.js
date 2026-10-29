@@ -3,7 +3,7 @@
 import { RULES } from './engine.js';
 
 // Siempre activas: sorpresas de earnings, revisiones, insiders, precio vs EPS y tus objetivos
-export const COMMON = ['beat', 'miss', 'eps_rev_down', 'insider', 'earnings_soon', 'eps_gap', 'price_ahead', 'drawdown', 'target_hit', 'below_avg'];
+export const COMMON = ['upside', 'over_fair', 'beat', 'miss', 'eps_rev_down', 'insider', 'earnings_soon', 'eps_gap', 'price_ahead', 'drawdown', 'target_hit', 'below_avg'];
 
 export const PROFILES = {
   defensiva: {
@@ -50,6 +50,18 @@ export const PROFILES = {
     label: 'Minería (oro / cobre)', desc: 'Rol: cobertura y electrificación. EV/EBITDA bajo, caja, poca deuda y márgenes (siguen al precio del metal).',
     rules: { evebitda: { w: 2, p: { max: 8 } }, fcf_yield: { w: 2, p: { min: 5 } }, debt_ebitda: { w: 2, p: { max: 1.5 } }, op_margin: { w: 1, p: { min: 25 } }, rev_growth: { w: 1, p: { min: 10 } }, fpe: { w: 1, p: { max: 20 } } },
   },
+  cripto: {
+    label: 'Cripto / ciclo BTC', common: [], desc: 'Rol: exposición al ciclo de Bitcoin. Manda el análisis técnico; de fundamentales solo el upside al precio justo (si cargás uno).',
+    rules: {},
+  },
+  reit: {
+    label: 'Real estate (REITs)', desc: 'Rol: renta inmobiliaria. Dividendo, yield vs su historia, apalancamiento y crecimiento (el payout alto es normal en REITs).',
+    rules: { div_range: { w: 3, p: { min: 2.5, max: 7 } }, div_vs_avg: { w: 3, p: { margen: 0 } }, debt_ebitda: { w: 2, p: { max: 6.5 } }, rev_growth: { w: 2, p: { min: 5 } }, evebitda: { w: 1, p: { max: 25 } } },
+  },
+  materiales: {
+    label: 'Materiales de calidad', desc: 'Rol: compounder industrial. Márgenes, caja, valuación y dividendo vs su historia.',
+    rules: { op_margin: { w: 2, p: { min: 18 } }, fcf_yield: { w: 2, p: { min: 3 } }, fpe: { w: 2, p: { max: 28 } }, peg: { w: 2, p: { max: 2.5 } }, div_vs_avg: { w: 1, p: { margen: 0 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 1, p: { margen: 5 } } },
+  },
   salud: {
     label: 'Salud', desc: 'Rol: defensiva con crecimiento. Valuación, caja y yield vs su historia.',
     rules: { fpe: { w: 2, p: { max: 20 } }, peg: { w: 2, p: { max: 1.5 } }, fcf_yield: { w: 2, p: { min: 4 } }, div_vs_avg: { w: 2, p: { margen: 0 } }, debt_ebitda: { w: 1, p: { max: 3 } }, rev_decline: { w: 2, p: { margen: 5 } } },
@@ -84,7 +96,7 @@ export function applyProfile(rules, key) {
     const r = (rules[id] ||= { on: false, w: def.w, p: { ...def.p }, tg: !!def.tg });
     const pr = prof.rules[id];
     if (pr) { r.on = true; r.w = pr.w; r.p = { ...def.p, ...pr.p }; }
-    else if (COMMON.includes(id)) { r.on = true; }
+    else if ((prof.common || COMMON).includes(id)) { r.on = true; }
     else r.on = false;
   }
   return rules;

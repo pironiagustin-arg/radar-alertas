@@ -56,7 +56,7 @@ async function pushConfig() {
 }
 function normalize(s) {
   for (const g of s.groups) { const d = defaultRules(); for (const k in d) if (!g.rules[k]) g.rules[k] = d[k]; }
-  s.market = { ...defaultMarket(), ...(s.market || {}) }; s.telegram ||= { minScore: null }; s.alertMin ||= { at: 5, af: 8, negAlways: true };
+  s.market = { ...defaultMarket(), ...(s.market || {}) }; s.telegram ||= { minScore: null }; s.alertMin ||= { at: 70, af: 70, negAlways: true }; if (s.alertMin.at != null && s.alertMin.at < 20) s.alertMin.at = 70; if (s.alertMin.af != null && s.alertMin.af < 20) s.alertMin.af = 70;
   return s;
 }
 function askPass(wrong) {
@@ -114,7 +114,11 @@ function evaluate() {
 let sortBy = localStorage.getItem(KEY + ':sort') || 'total';
 const scoreOf = (r) => (sortBy === 'total' ? r : r[sortBy]) || {};
 function sortResults() {
-  RESULTS.sort((a, b) => (scoreOf(b).score ?? -99) - (scoreOf(a).score ?? -99) || (scoreOf(b).pct ?? 0) - (scoreOf(a).pct ?? 0) || (b.score ?? -99) - (a.score ?? -99));
+  RESULTS.sort((a, b) => (scoreOf(b).score ?? -1) - (scoreOf(a).score ?? -1) || (b.score ?? -1) - (a.score ?? -1));
+  // posición dentro de su grupo (las comparaciones son siempre intragrupo)
+  const byG = {};
+  for (const r of RESULTS) { if (r.error) continue; (byG[r.group.id] ||= []).push(r); }
+  for (const list of Object.values(byG)) list.forEach((r, i) => { r.rankG = i + 1; r.sizeG = list.length; });
 }
 
 // Alertas: se disparan cuando una condición pasa de "no" a "sí" entre una actualización y otra
@@ -141,7 +145,7 @@ function detectAlerts() {
 
 // ───────────────────────── Render ─────────────────────────
 function render() {
-  renderMarket(); renderRanking(); renderGroups(); renderAlerts(); renderSettings(); renderIA(); renderTesis();
+  renderMarket(); renderSectors(); renderRanking(); renderPortfolios(); renderGroups(); renderAlerts(); renderSettings(); renderIA(); renderTesis();
   if (openSym) renderDrawer(openSym);
   $('#alertCount').textContent = unseen || '';
 }
@@ -168,62 +172,69 @@ const sgn = (x, d = 1) => (x == null || !isFinite(x) ? '—' : (x > 0 ? '+' : ''
 function renderRanking() {
   const el = $('#tab-ranking');
   if (!S.tickers.length) { el.innerHTML = '<div class="empty">Todavía no cargaste tickers. Andá a <b>Grupos</b>, creá uno y sumale acciones.</div>'; return; }
-  const rows = RESULTS.filter((r) => filterGroup === 'all' || r.group.id === filterGroup);
-  const maxT = Math.max(1, ...RESULTS.map((r) => r.tec?.posMax || 0)), maxF = Math.max(1, ...RESULTS.map((r) => r.fun?.posMax || 0));
   const sortBtn = (k, l) => `<button class="sm ${sortBy === k ? 'primary' : ''}" data-sort="${k}">${l}</button>`;
+  const groups = S.groups.filter((g) => filterGroup === 'all' || g.id === filterGroup);
+  const head = `<thead><tr><th title="Elegí 2 o más del mismo grupo para comparar">⇄</th><th>#</th><th>Ticker</th><th style="text-align:right">Precio</th>
+    <th class="${sortBy === 'tec' ? 'sorted' : ''}">AT <span class="muted" style="text-transform:none">tend · gat</span></th><th class="${sortBy === 'fun' ? 'sorted' : ''}">AF</th><th class="${sortBy === 'total' ? 'sorted' : ''}" style="text-align:right">Total</th>
+    <th>Señales activas</th><th style="text-align:right">Upside</th><th style="text-align:right">RSI</th></tr></thead>`;
   el.innerHTML = `
-    <div class="row spread">
-      <div class="chips">
-        <span class="chip f ${filterGroup === 'all' ? 'on' : ''}" data-g="all">Todos (${S.tickers.length})</span>
-        ${S.groups.map((g) => `<span class="chip f ${filterGroup === g.id ? 'on' : ''}" data-g="${g.id}" style="border-left:3px solid ${g.color}">${esc(g.name)} (${S.tickers.filter((t) => t.group === g.id).length})</span>`).join('')}
-      </div>
+    <div class="chips">
+      <span class="chip f ${filterGroup === 'all' ? 'on' : ''}" data-g="all">Todos (${S.tickers.length})</span>
+      ${S.groups.map((g) => `<span class="chip f ${filterGroup === g.id ? 'on' : ''}" data-g="${g.id}" style="border-left:3px solid ${g.color}">${esc(g.name)} (${S.tickers.filter((t) => t.group === g.id).length})</span>`).join('')}
     </div>
     <div class="row spread" style="margin-top:10px">
-      <div class="row"><span class="muted">Rankear por</span>${sortBtn('tec', 'Técnico (AT)')}${sortBtn('fun', 'Fundamental (AF)')}${sortBtn('total', 'Total')}
-        <button class="sm ${SEL.size >= 2 ? 'primary' : ''}" id="cmpBtn" ${SEL.size >= 2 ? '' : 'disabled'}>Comparar ${SEL.size ? `(${SEL.size})` : ''}</button>${SEL.size ? '<button class="sm ghost" id="cmpClr">Limpiar selección</button>' : ''}</div>
-      <span class="muted">Score = peso de positivas cumplidas − peso de negativas activas · AF incluye tus objetivos</span>
+      <div class="row"><span class="muted">Ordenar por</span>${sortBtn('total', 'Total')}${sortBtn('tec', 'Técnico (AT)')}${sortBtn('fun', 'Fundamental (AF)')}
+        <button class="sm ${SEL.size >= 2 ? 'primary' : ''}" id="cmpBtn" ${SEL.size >= 2 ? '' : 'disabled'}>Comparar ${SEL.size ? `(${SEL.size})` : ''}</button>${SEL.size ? '<button class="sm ghost" id="cmpClr">Limpiar</button>' : ''}</div>
+      <span class="muted">Scores 0–100 relativos a su grupo · AT = 60% tendencia + 40% gatillo · AF ponderado por métricas del tipo de empresa</span>
     </div>
-    <div class="tablewrap"><table>
-      <thead><tr><th title="Elegí 2 o más para comparar">⇄</th><th>#</th><th>Ticker</th><th class="hide-m">Grupo</th><th style="text-align:right">Precio</th>
-        <th class="${sortBy === 'tec' ? 'sorted' : ''}">AT</th><th class="${sortBy === 'fun' ? 'sorted' : ''}">AF</th><th class="${sortBy === 'total' ? 'sorted' : ''}" style="text-align:right">Total</th>
-        <th>Señales activas</th><th style="text-align:right">RSI</th><th style="text-align:right">vs EMA200</th><th style="text-align:right">A venta</th></tr></thead>
-      <tbody>${rows.map((r, i) => rowHtml(r, i, maxT, maxF)).join('') || '<tr><td colspan="11" class="muted">Sin tickers en este grupo</td></tr>'}</tbody>
-    </table></div>`;
+    ${groups.map((g) => {
+      const rows = RESULTS.filter((r) => r.group.id === g.id);
+      if (!rows.length) return '';
+      return `<div class="gsec"><div class="gsec-h" style="border-left-color:${g.color}"><b>${esc(g.name)}</b> <span class="muted">vs ${esc(g.benchmark || '—')} · ${rows.length} acciones</span></div>
+        <div class="tablewrap"><table>${head}<tbody>${rows.map((r, i) => rowHtml(r, i)).join('')}</tbody></table></div></div>`;
+    }).join('')}`;
   el.querySelectorAll('[data-g]').forEach((c) => (c.onclick = () => { filterGroup = c.dataset.g; renderRanking(); }));
   el.querySelectorAll('[data-sort]').forEach((b) => (b.onclick = () => { sortBy = b.dataset.sort; localStorage.setItem(KEY + ':sort', sortBy); sortResults(); renderRanking(); }));
   el.querySelectorAll('tbody tr[data-s]').forEach((tr) => (tr.onclick = (e) => { if (e.target.closest('.selc')) return; openDrawer(tr.dataset.s); }));
-  el.querySelectorAll('.selc input').forEach((c) => (c.onchange = () => { c.checked ? SEL.add(c.dataset.sel) : SEL.delete(c.dataset.sel); renderRanking(); }));
+  el.querySelectorAll('.selc input').forEach((c) => (c.onchange = () => {
+    const tk = S.tickers.find((t) => t.symbol === c.dataset.sel);
+    if (c.checked) {
+      const other = [...SEL].find((x) => S.tickers.find((t) => t.symbol === x)?.group !== tk.group);
+      if (other) { SEL.clear(); toast('El comparador es solo dentro del mismo grupo: empecé una selección nueva'); }
+      SEL.add(c.dataset.sel);
+    } else SEL.delete(c.dataset.sel);
+    renderRanking();
+  }));
   const cb = $('#cmpBtn', el); if (cb) cb.onclick = () => openCompare();
   const cc = $('#cmpClr', el); if (cc) cc.onclick = () => { SEL.clear(); renderRanking(); };
 }
 
-function scoreCell(c, max) {
-  if (!c) return '<td>—</td>';
-  return `<td><div class="score"><b class="${c.score > 0 ? 'pos' : c.score < 0 ? 'neg' : ''}">${c.score}</b>
-    <div class="bar"><i style="width:${(c.pos / max) * 100}%"></i><u style="width:${Math.min(100, (c.neg / max) * 100)}%"></u></div>
-    <span class="muted mono">${c.metPos}/${c.totPos}</span></div></td>`;
+const scls = (v) => (v == null ? 'muted' : v >= 70 ? 'pos' : v >= 45 ? 'mid' : 'neg');
+function scoreCell(v, sub, cov) {
+  if (v == null) return '<td class="muted">—</td>';
+  return `<td><div class="score"><b class="${scls(v)}">${v}</b><div class="bar"><i style="width:${v}%" class="${scls(v)}"></i></div>
+    ${sub ? `<span class="muted mono">${sub}</span>` : ''}${cov != null && cov < 80 ? `<span class="cov" title="Cobertura de datos: ${cov}%">${cov}%</span>` : ''}</div></td>`;
 }
 
-function rowHtml(r, i, maxT, maxF) {
+function rowHtml(r, i) {
   const s = r.ticker.symbol;
   const selc = `<td class="selc"><input type="checkbox" data-sel="${s}" ${SEL.has(s) ? 'checked' : ''}></td>`;
-  if (r.error) return `<tr data-s="${s}">${selc}<td class="rank">${i + 1}</td><td class="sym">${s}</td><td colspan="9" class="muted">${esc(r.error)}</td></tr>`;
-  const met = r.rules.filter((x) => x.met).sort((a, b) => b.pol - a.pol || b.w - a.w);
-  const chips = (arr) => arr.map((x) => `<span class="chip ${x.pol > 0 ? 'p' : 'n'}">${esc(x.label)}</span>`).join('');
+  if (r.error) return `<tr data-s="${s}">${selc}<td class="rank">—</td><td class="sym">${s}</td><td colspan="7" class="muted">${esc(r.error)}</td></tr>`;
+  const met = r.rules.filter((x) => x.met && x.w > 0).sort((a, b) => b.pol - a.pol || b.w - a.w);
+  const chips = (arr) => arr.map((x) => `<span class="chip ${x.pol > 0 ? 'p' : 'n'}" title="${esc(x.val)}">${esc(x.id.startsWith('pattern') ? x.val.split(',')[0] : x.label)}</span>`).join('');
   const at = met.filter((x) => x.cat === 'tec'), af = met.filter((x) => x.cat !== 'tec');
-  const closest = r.targets.filter((x) => x.dVenta != null).sort((a, b) => a.dVenta - b.dVenta)[0];
+  const up = r.rules.find((x) => x.id === 'upside');
+  const upv = up && up.met != null ? parseFloat(String(up.val)) : null;
   const name = r.f?.name || DATA.symbols[s]?.prices?.name || '';
   return `<tr data-s="${s}">${selc}
-    <td class="rank">${i + 1}</td>
+    <td class="rank">${r.rankG ?? i + 1}</td>
     <td class="sym">${s}<small>${esc(name)}</small></td>
-    <td class="hide-m"><span class="gtag" style="border-left-color:${r.group.color}">${esc(r.group.name)}</span></td>
     <td class="num">${fmt(r.t.price, 2)}</td>
-    ${scoreCell(r.tec, maxT)}${scoreCell(r.fun, maxF)}
-    <td class="num"><b class="${r.score > 0 ? 'pos' : r.score < 0 ? 'neg' : ''}">${r.score}</b></td>
+    ${scoreCell(r.tec.score, `${r.tec.trend}·${r.tec.trig}`)}${scoreCell(r.fun.score, null, r.fun.coverage)}
+    <td class="num"><b class="${scls(r.score)}">${r.score}</b></td>
     <td><div class="sig">${at.length ? `<div class="chips"><span class="tag">AT</span>${chips(at)}</div>` : ''}${af.length ? `<div class="chips"><span class="tag">AF</span>${chips(af)}</div>` : ''}${met.length ? '' : '<span class="muted">—</span>'}</div></td>
+    <td class="num ${upv == null ? 'muted' : upv > 0 ? 'pos' : 'neg'}">${upv == null ? '—' : sgn(upv, 0)}</td>
     <td class="num ${r.t.rsiNow > 70 ? 'neg' : r.t.rsiNow < 35 ? 'pos' : ''}">${fmt(r.t.rsiNow, 0)}</td>
-    <td class="num">${sgn(r.t.d200)}</td>
-    <td class="num ${closest?.hit ? 'neg' : ''}">${closest ? (closest.hit ? 'LLEGÓ' : sgn(closest.dVenta)) + `<br><span class="muted">${closest.label}</span>` : '—'}</td>
   </tr>`;
 }
 
@@ -353,7 +364,7 @@ function podium() {
 
 function renderAlerts() {
   const el = $('#tab-alertas');
-  el.innerHTML = `${podium()}<div class="row spread" style="margin-top:14px"><span class="muted">Se registra cada condición que pasa de "no" a "sí" entre actualizaciones. Con la pestaña abierta se actualiza cada ${S.refreshMin} min.</span><button class="sm" id="clr">Limpiar</button></div>
+  el.innerHTML = `<div class="row spread"><span class="muted">Se registra cada condición que pasa de "no" a "sí" entre actualizaciones. Con la pestaña abierta se actualiza cada ${S.refreshMin} min.</span><button class="sm" id="clr">Limpiar</button></div>
   <div class="feed card" style="margin-top:12px">${LOG.map((a) => `<div class="it">
       <span class="chip ${a.pol > 0 ? 'p' : 'n'}">${a.pol > 0 ? '▲' : '▼'} ${esc(a.sym)}</span>
       <div>${esc(a.label)} <span class="muted mono">${esc(a.val)}</span>${a.score != null ? ` <span class="muted">· score ${a.score}</span>` : ''}</div>
@@ -363,7 +374,7 @@ function renderAlerts() {
   if (SERVER.ok) api('/api/alerts').then(({ alerts }) => {
     if (!alerts?.length) return;
     const box = document.createElement('div');
-    const anchor = el.querySelector('.podium');
+    const anchor = null;
     box.innerHTML = `<h4 style="margin:18px 0 6px">Detectadas por el servidor (las que van a Telegram)</h4><div class="feed card">${alerts.map((a) => `<div class="it">
       <span class="chip ${a.pol > 0 ? 'p' : 'n'}">${a.pol > 0 ? '▲' : '▼'} ${esc(a.sym)}</span>
       <div>${esc(a.label)} <span class="muted mono">${esc(a.val)}</span></div>
@@ -379,8 +390,8 @@ function renderSettings() {
     <div class="card"><h3>Avisos (Telegram y mail)</h3><div id="tgBox" class="muted" style="margin-top:8px">${SERVER.ok ? 'Revisando…' : 'Iniciá sesión para configurarlo.'}</div></div>
     <div class="card"><h3>Puntaje mínimo para alertar</h3>
       <p class="muted">Una señal positiva de un ticker solo genera alerta (en la página, mail y Telegram) si su score de esa categoría supera el mínimo. Así te llegan solo las que valen la pena.</p>
-      <div class="row"><label>Técnicas: AT ≥ <input type="number" step="0.5" id="amAT" value="${S.alertMin.at ?? ''}"></label>
-        <label>Fundamentales: AF ≥ <input type="number" step="0.5" id="amAF" value="${S.alertMin.af ?? ''}"></label>
+      <div class="row"><label>Técnicas: AT ≥ <input type="number" step="5" id="amAT" value="${S.alertMin.at ?? ''}"></label>
+        <label>Fundamentales: AF ≥ <input type="number" step="5" id="amAF" value="${S.alertMin.af ?? ''}"></label>
         <label><input type="checkbox" id="amNeg" ${S.alertMin.negAlways !== false ? 'checked' : ''}> Las negativas (venta, recortes, pierde EMA200…) avisan siempre</label></div></div>
     <div class="card"><h3>Actualización</h3><div class="row" style="margin-top:10px"><label>Refrescar cada <input type="number" id="rf" value="${S.refreshMin}"> minutos (con la pestaña abierta)</label></div></div>
     <div class="card"><h3>Backup</h3><p class="muted">Con sesión iniciada la configuración se guarda en la nube y se sincroniza entre dispositivos. El JSON sirve de backup.</p>
@@ -446,12 +457,18 @@ function renderDrawer(sym) {
       <div class="muted">${esc(f.name || DATA.symbols[sym]?.prices?.name || '')} · <span class="gtag" style="border-left-color:${r.group.color}">${esc(r.group.name)}</span> ${r.group.benchmark ? `· vs ${r.group.benchmark}` : ''}</div></div>
       <button class="ghost" id="x">✕</button></div>
     <div class="kpis">
-      <div class="kpi"><div class="k">Total</div><div class="v ${cls(r.score)}">${r.score}</div></div>
-      <div class="kpi"><div class="k">AT</div><div class="v ${cls(r.tec.score)}">${r.tec.score} <span class="muted">${r.tec.metPos}/${r.tec.totPos}</span></div></div>
-      <div class="kpi"><div class="k">AF</div><div class="v ${cls(r.fun.score)}">${r.fun.score} <span class="muted">${r.fun.metPos}/${r.fun.totPos}</span></div></div>
-      <div class="kpi"><div class="k">RSI · vs EMA200</div><div class="v">${fmt(r.t.rsiNow, 0)} · ${sgn(r.t.d200)}</div></div>
+      <div class="kpi"><div class="k">Total</div><div class="v ${scls(r.score)}">${r.score}</div></div>
+      <div class="kpi"><div class="k">AT · tend / gat</div><div class="v ${scls(r.tec.score)}">${r.tec.score} <span class="muted">${r.tec.trend} / ${r.tec.trig}</span></div></div>
+      <div class="kpi"><div class="k">AF · cobertura</div><div class="v ${scls(r.fun.score)}">${r.fun.score ?? '—'} <span class="muted">${r.fun.coverage != null ? r.fun.coverage + '%' : ''}</span></div></div>
+      <div class="kpi"><div class="k">Puesto en ${esc(r.group.name)}</div><div class="v">#${r.rankG ?? '—'} <span class="muted">de ${r.sizeG ?? '—'}</span></div></div>
     </div>
     ${chartSvg(r.t)}
+    ${r.t.patterns.length ? `<div class="chips" style="margin-top:8px"><span class="tag">Figuras</span>${r.t.patterns.map((x) => `<span class="chip ${x.dir > 0 ? 'p' : 'n'}">${esc(x.name)} · ${x.stage}</span>`).join('')}</div>` : ''}
+    <div id="histBox"></div>
+    ${(() => { const up = r.rules.find((x) => x.id === 'upside'); const fv = tk.fundOverrides?.fairValue; const cons = DATA.symbols[sym]?.fund?.targetMean;
+      return `<div class="fairbox"><label class="mini">Precio justo US$<input type="text" inputmode="decimal" data-fo="fairValue" value="${fv ?? ''}" placeholder="${cons ? 'consenso ' + (+cons).toFixed(2) : 'cargar'}"${fv != null ? ' class="man"' : ''}></label>
+        <span class="mono ${up?.met ? 'pos' : 'muted'}">${up ? esc(up.val) : ''}</span>
+        ${tk.kpiSrc?.fairValue ? `<div class="muted" style="font-size:11px">${esc(tk.kpiSrc.fairValue)}</div>` : !fv && cons ? '<div class="muted" style="font-size:11px">Sin precio justo tuyo: se usa el consenso de analistas. Cargá el de tu tesis para que mande el tuyo.</div>' : ''}</div>`; })()}
     <h4 style="margin:18px 0 4px">Métricas ${prof ? `de ${esc(prof.label.toLowerCase())}` : 'del grupo'}</h4>
     ${keyRows.length ? `<table class="tgt keym"><thead><tr><th>Métrica</th><th>Valor</th><th>Regla</th><th></th></tr></thead><tbody>${keyRows.map((x) => keyRow(x, sym, tk)).join('')}</tbody></table>
       <div class="muted" style="margin-top:4px">El valor viene de Yahoo; si no coincide con tu fuente, escribí el tuyo (queda ✎). Porcentajes como número.</div>`
@@ -496,6 +513,7 @@ function renderDrawer(sym) {
   $('#rulesBox', el).appendChild(rulesEditor(r.group.rules, { overrides: tk.overrides, results: r.rules, onChange: () => { save(); evaluate(); renderRanking(); } }));
   $('#resetOv', el).onclick = () => { tk.overrides = {}; save(); evaluate(); render(); };
   $('#mv', el).onchange = (e) => { tk.group = e.target.value; save(); refresh(); };
+  loadHistory(sym);
 }
 
 // Métricas propias del grupo = fundamentales activas que no son de las "comunes"
@@ -749,6 +767,7 @@ async function uploadTheses(files) {
       st.textContent = `Analizando ${f.name} con la IA… (30-60 s)`;
       const r = await api('/api/thesis', { method: 'POST', body: JSON.stringify(body) });
       THESES = [{ ...r.thesis, created_at: new Date().toISOString() }, ...THESES]; ok++;
+      if (r.fairValue) { try { const { config } = await api('/api/config'); if (config) { S = normalize(config); BASE_REV = config.rev ?? null; localStorage.setItem(KEY, JSON.stringify(S)); evaluate(); } } catch {} toast(`${r.thesis.ticker}: precio justo US$${r.fairValue} cargado en el radar`); }
       toast(`${r.thesis.ticker}: tesis cargada, ${r.metrics} métricas guardadas`);
       renderTesis();
     } catch (e) { toast(`${f.name}: ${e.message}`); st.textContent = `⚠️ ${f.name}: ${e.message}`; }
@@ -784,9 +803,9 @@ function fundTable(sym, r, tk, keyIds = []) {
 
 // ───────────────────────── Filtro de alertas por puntaje ─────────────────────────
 function passesMin(r, x, m = {}) {
-  if (x.pol < 0) return m.negAlways !== false || (r.score >= (m.at ?? -99));
+  if (x.pol < 0) return m.negAlways !== false || (r.score >= (m.at ?? -1));
   const min = x.cat === 'tec' ? m.at : m.af;
-  return min == null || (x.cat === 'tec' ? r.tec.score : r.fun.score) >= min;
+  return min == null || ((x.cat === 'tec' ? r.tec.score : r.fun.score) ?? 0) >= min;
 }
 
 // ───────────────────────── Comparador ─────────────────────────
@@ -829,4 +848,170 @@ function openCompare() {
   $('#cmpX', m).onclick = () => m.classList.remove('on');
   m.onclick = (e) => { if (e.target === m) m.classList.remove('on'); };
   m.querySelectorAll('[data-cm]').forEach((c) => (c.onclick = () => { const k = c.dataset.cm; CMP_METRICS = CMP_METRICS.includes(k) ? CMP_METRICS.filter((x) => x !== k) : [...CMP_METRICS, k]; openCompare(); }));
+}
+
+
+// ───────────────────────── Historial de scores (ficha) ─────────────────────────
+const HIST = {};
+async function loadHistory(sym) {
+  const box = $('#histBox'); if (!box || !SERVER.ok) return;
+  if (!HIST[sym]) { try { HIST[sym] = (await api('/api/history?sym=' + encodeURIComponent(sym))).rows; } catch { return; } }
+  if (openSym !== sym) return;
+  const rows = HIST[sym].slice(-252); if (rows.length < 5) return;
+  const W = 520, H = 90, pad = 6, X = (i) => pad + (i / (rows.length - 1)) * (W - 2 * pad), Y = (v) => H - pad - (v / 100) * (H - 2 * pad);
+  const path = (k) => rows.map((r, i) => (r[k] == null ? null : [X(i), Y(r[k])])).reduce((acc, pt, i, arr) => (pt ? acc + `${arr[i - 1] ? 'L' : 'M'}${pt[0].toFixed(1)},${pt[1].toFixed(1)}` : acc), '');
+  const last = rows.at(-1), prev = rows[Math.max(0, rows.length - 21)];
+  const dAT = last.at != null && prev.at != null ? last.at - prev.at : null;
+  box.innerHTML = `<h4 style="margin:14px 0 4px">Evolución del score <span class="muted">(AT ${dAT == null ? '' : (dAT > 0 ? '+' : '') + dAT + ' en 1 mes'})</span></h4>
+    <svg class="chart" style="height:90px" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <line x1="0" x2="${W}" y1="${Y(70)}" y2="${Y(70)}" stroke="rgba(34,197,94,.25)" stroke-dasharray="4 4"/>
+      <path d="${path('at')}" fill="none" stroke="#60a5fa" stroke-width="1.6"/><path d="${path('af')}" fill="none" stroke="#22c55e" stroke-width="1.6"/><path d="${path('total')}" fill="none" stroke="#f59e0b" stroke-width="1.4"/></svg>
+    <div class="legend"><span><i style="background:#60a5fa"></i>AT (1 año)</span><span><i style="background:#22c55e"></i>AF</span><span><i style="background:#f59e0b"></i>Total</span><span>AF y Total se registran desde oct. 2026</span></div>`;
+}
+
+// ───────────────────────── Sectores: la mejor de cada uno ─────────────────────────
+function why(r) {
+  const key = r.rules.filter((x) => x.met && x.pol > 0 && x.w > 0).sort((a, b) => b.w * (b.frac ?? 1) - a.w * (a.frac ?? 1));
+  return key.slice(0, 3).map((x) => `${x.id.startsWith('pattern') ? String(x.val).split(',')[0] : x.label.replace(/ [≤≥]$/, '')} <span class="muted">${esc(String(x.val).split(' a US$')[0])}</span>`).join(' · ');
+}
+function renderSectors() {
+  const el = $('#tab-sectores');
+  if (!RESULTS.length) { el.innerHTML = '<div class="muted">Cargando…</div>'; return; }
+  const cards = S.groups.map((g) => {
+    const rs = RESULTS.filter((r) => r.group.id === g.id && !r.error).sort((a, b) => b.score - a.score);
+    if (!rs.length) return '';
+    const best = rs[0];
+    const atL = [...rs].sort((a, b) => b.tec.score - a.tec.score)[0], afL = [...rs].sort((a, b) => (b.fun.score ?? -1) - (a.fun.score ?? -1))[0];
+    const up = best.rules.find((x) => x.id === 'upside');
+    const prof = PROFILES[g.profile];
+    return `<div class="card sec" style="border-top:3px solid ${g.color}">
+      <div class="row spread"><b>${esc(g.name)}</b><span class="muted">${prof ? esc(prof.label) : ''}</span></div>
+      <div class="sec-best" data-s="${best.ticker.symbol}">
+        <div><span class="sec-sym">${best.ticker.symbol}</span> <span class="muted">${esc((best.f?.name || '').slice(0, 26))}</span></div>
+        <div class="sec-sc"><span class="${scls(best.score)}">${best.score}</span><small>total</small></div>
+      </div>
+      <div class="row" style="gap:14px;margin:4px 0 6px"><span class="muted">AT <b class="${scls(best.tec.score)}">${best.tec.score}</b></span><span class="muted">AF <b class="${scls(best.fun.score)}">${best.fun.score ?? '—'}</b></span>
+        ${up && up.met != null ? `<span class="muted">Upside <b class="${parseFloat(up.val) > 0 ? 'pos' : 'neg'}">${esc(String(up.val).split(' a ')[0])}</b></span>` : ''}</div>
+      <div class="sec-why">${why(best) || '<span class="muted">sin señales fuertes</span>'}</div>
+      <div class="sec-alt">${rs.slice(1, 3).map((r, i) => `<span data-s="${r.ticker.symbol}">#${i + 2} ${r.ticker.symbol} <b class="${scls(r.score)}">${r.score}</b></span>`).join('')}
+        ${atL !== best ? `<span data-s="${atL.ticker.symbol}" title="líder técnico">AT↑ ${atL.ticker.symbol}</span>` : ''}${afL !== best && afL.fun.score != null ? `<span data-s="${afL.ticker.symbol}" title="líder fundamental">AF↑ ${afL.ticker.symbol}</span>` : ''}</div>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="row spread"><span class="muted">La #1 de cada sector por score total (50% AT + 50% AF), comparada solo contra su grupo. Tocá una acción para ver por qué.</span></div>
+    <div class="sec-grid">${cards}</div>`;
+  el.querySelectorAll('[data-s]').forEach((d) => (d.onclick = (e) => { e.stopPropagation(); openDrawer(d.dataset.s); }));
+}
+
+// ───────────────────────── Carteras por perfil ─────────────────────────
+const ROLE_OF = { defensiva: 'renta', reit: 'renta', petroleo: 'renta', megacap: 'calidad', pagos: 'calidad', materiales: 'calidad', banco: 'calidad', defensa: 'calidad', salud: 'calidad', industrial: 'calidad', semis: 'crecimiento', software: 'crecimiento', ciber: 'crecimiento', plataforma: 'crecimiento', fintech: 'crecimiento', discrecional: 'crecimiento', energia: 'crecimiento', minera: 'cobertura', neocloud: 'especulativo', cripto: 'especulativo' };
+const ROLES = { renta: 'Renta / defensivas', calidad: 'Calidad', crecimiento: 'Crecimiento', cobertura: 'Cobertura (metales)', especulativo: 'Especulativo' };
+const PROFILES_P = {
+  conservador: { label: 'Conservador', mix: { renta: 40, calidad: 35, cobertura: 15, crecimiento: 10, especulativo: 0 }, min: 50, cap: 12 },
+  moderado: { label: 'Moderado', mix: { renta: 20, calidad: 35, crecimiento: 30, cobertura: 10, especulativo: 5 }, min: 45, cap: 12 },
+  agresivo: { label: 'Agresivo', mix: { renta: 5, calidad: 25, crecimiento: 45, cobertura: 5, especulativo: 20 }, min: 40, cap: 15 },
+};
+let PF = { profile: localStorage.getItem(KEY + ':pf') || 'moderado', weighting: localStorage.getItem(KEY + ':pfw') || 'vol' };
+
+function dailyRets(prices, days = 252) {
+  const c = prices.close.slice(-days - 1), d = prices.dates.slice(-days - 1);
+  return { dates: d.slice(1), r: c.slice(1).map((x, i) => x / c[i] - 1) };
+}
+const annVol = (r) => { const m = r.reduce((a, b) => a + b, 0) / r.length; return Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / (r.length - 1)) * Math.sqrt(252) * 100; };
+
+function buildPortfolio(profKey) {
+  const P = PROFILES_P[profKey];
+  const ok = RESULTS.filter((r) => !r.error && r.group.profile && ROLE_OF[r.group.profile]);
+  const picks = [];
+  for (const [role, wRole] of Object.entries(P.mix)) {
+    if (!wRole) continue;
+    const nPos = Math.max(1, Math.round(wRole / 10));
+    const groups = [...new Set(ok.filter((r) => ROLE_OF[r.group.profile] === role).map((r) => r.group.id))];
+    const ranked = groups.map((gid) => ok.filter((r) => r.group.id === gid && r.score >= P.min).sort((a, b) => b.score - a.score)).filter((l) => l.length).sort((a, b) => b[0].score - a[0].score);
+    const chosen = [];
+    for (let round = 0; chosen.length < nPos && round < 3; round++) for (const l of ranked) { if (chosen.length >= nPos) break; if (l[round]) chosen.push(l[round]); }
+    if (!chosen.length) continue;
+    const vols = chosen.map((r) => { const p = DATA.symbols[r.ticker.symbol]?.prices; return p ? annVol(dailyRets(p).r) : 30; });
+    const inv = vols.map((v) => 1 / Math.max(v, 5)), sInv = inv.reduce((a, b) => a + b, 0);
+    chosen.forEach((r, i) => picks.push({ r, role, w: PF.weighting === 'vol' ? (wRole * inv[i]) / sInv : wRole / chosen.length, vol: vols[i] }));
+  }
+  // tope por posición y renormalización
+  const tot = picks.reduce((a, b) => a + b.w, 0) || 1;
+  picks.forEach((x) => (x.w = (x.w / tot) * 100));
+  for (let k = 0; k < 5; k++) { let ex = 0; picks.forEach((x) => { if (x.w > P.cap) { ex += x.w - P.cap; x.w = P.cap; } }); const free = picks.filter((x) => x.w < P.cap); const fw = free.reduce((a, b) => a + b.w, 0) || 1; free.forEach((x) => (x.w += (ex * x.w) / fw)); if (ex < 0.01) break; }
+  return picks.sort((a, b) => b.w - a.w);
+}
+
+function portfolioStats(picks, days) {
+  const spy = DATA.symbols.SPY?.prices; if (!spy || !picks.length) return null;
+  const S0 = dailyRets(spy, days);
+  const maps = picks.map((x) => { const p = DATA.symbols[x.r.ticker.symbol].prices; const m = new Map(); const dr = dailyRets(p, days + 10); dr.dates.forEach((d, i) => m.set(d, dr.r[i])); return m; });
+  const port = S0.dates.map((d) => picks.reduce((a, x, i) => a + (x.w / 100) * (maps[i].get(d) ?? 0), 0));
+  const cum = (r) => r.reduce((a, b) => a * (1 + b), 1) - 1;
+  const mdd = (r) => { let pk = 1, v = 1, m = 0; for (const x of r) { v *= 1 + x; pk = Math.max(pk, v); m = Math.min(m, v / pk - 1); } return m * 100; };
+  const mp = port.reduce((a, b) => a + b, 0) / port.length, ms = S0.r.reduce((a, b) => a + b, 0) / S0.r.length;
+  const cov = port.reduce((a, x, i) => a + (x - mp) * (S0.r[i] - ms), 0) / (port.length - 1), varS = S0.r.reduce((a, x) => a + (x - ms) ** 2, 0) / (S0.r.length - 1);
+  return { ret: cum(port) * 100, spy: cum(S0.r) * 100, vol: annVol(port), volSpy: annVol(S0.r), mdd: mdd(port), mddSpy: mdd(S0.r), beta: cov / varS, series: port, spySeries: S0.r };
+}
+
+function renderPortfolios() {
+  const el = $('#tab-carteras');
+  if (!RESULTS.length) { el.innerHTML = '<div class="muted">Cargando…</div>'; return; }
+  const picks = buildPortfolio(PF.profile);
+  const P = PROFILES_P[PF.profile];
+  const s1 = portfolioStats(picks, 252), s2 = portfolioStats(picks, 500);
+  const wavg = (fn) => picks.reduce((a, x) => { const v = fn(x.r); return v == null || !isFinite(v) ? a : { s: a.s + v * x.w, w: a.w + x.w }; }, { s: 0, w: 0 });
+  const yld = wavg((r) => r.f?.divYield), upv = wavg((r) => { const u = r.rules.find((y) => y.id === 'upside'); return u && u.met != null ? parseFloat(u.val) : null; });
+  const roles = Object.entries(P.mix).filter(([, w]) => w);
+  const curve = (st) => {
+    if (!st) return '';
+    const W = 520, H = 120, acc = (r) => r.reduce((a, x) => (a.push(a.at(-1) * (1 + x)), a), [1]);
+    const a = acc(st.series), b = acc(st.spySeries), all = [...a, ...b], lo = Math.min(...all), hi = Math.max(...all);
+    const pth = (s) => s.map((v, i) => `${i ? 'L' : 'M'}${(6 + (i / (s.length - 1)) * (W - 12)).toFixed(1)},${(H - 6 - ((v - lo) / (hi - lo || 1)) * (H - 12)).toFixed(1)}`).join('');
+    return `<svg class="chart" style="height:120px" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${pth(b)}" fill="none" stroke="#8a97b2" stroke-width="1.3"/><path d="${pth(a)}" fill="none" stroke="#22c55e" stroke-width="1.8"/></svg>
+      <div class="legend"><span><i style="background:#22c55e"></i>Cartera</span><span><i style="background:#8a97b2"></i>SPY</span></div>`;
+  };
+  const stat = (k, v, sub) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="muted" style="font-size:11px">${sub}</div>` : ''}</div>`;
+  const saved = (S.portfolios || []);
+  el.innerHTML = `
+    <div class="row spread">
+      <div class="row">${Object.entries(PROFILES_P).map(([k, p]) => `<button class="sm ${PF.profile === k ? 'primary' : ''}" data-pf="${k}">${p.label}</button>`).join('')}
+        <label class="muted">Pesos <select id="pfw"><option value="vol" ${PF.weighting === 'vol' ? 'selected' : ''}>por volatilidad (menos peso a lo más volátil)</option><option value="eq" ${PF.weighting === 'eq' ? 'selected' : ''}>iguales</option></select></label></div>
+      <button class="sm primary" id="pfSave">Guardar esta cartera</button>
+    </div>
+    <p class="muted">Elige la mejor acción de cada sector (score total ≥ ${P.min}), un sector distinto por posición, y reparte según el rol. Tope ${P.cap}% por posición. Mix: ${roles.map(([k, w]) => `${ROLES[k]} ${w}%`).join(' · ')}.</p>
+    <div class="grid pf-grid">
+      <div class="card"><h3>Posiciones (${picks.length})</h3>
+        <table class="tgt pf"><thead><tr><th>Ticker</th><th>Sector · rol</th><th style="text-align:right">Peso</th><th style="text-align:right">Total</th><th style="text-align:right">AT · AF</th><th style="text-align:right">Upside</th><th style="text-align:right">Yield</th></tr></thead>
+        <tbody>${picks.map((x) => { const u = x.r.rules.find((y) => y.id === 'upside'); return `<tr data-s="${x.r.ticker.symbol}"><td><b>${x.r.ticker.symbol}</b></td><td><span class="gtag" style="border-left-color:${x.r.group.color}">${esc(x.r.group.name)}</span> <span class="muted">${ROLES[x.role]}</span></td>
+          <td class="num"><b>${x.w.toFixed(1)}%</b></td><td class="num ${scls(x.r.score)}">${x.r.score}</td><td class="num">${x.r.tec.score} · ${x.r.fun.score ?? '—'}</td>
+          <td class="num">${u && u.met != null ? esc(String(u.val).split(' a ')[0]) : '—'}</td><td class="num">${x.r.f?.divYield ? x.r.f.divYield.toFixed(1) + '%' : '—'}</td></tr>`; }).join('')}</tbody></table></div>
+      <div class="card"><h3>Cómo se comporta</h3>
+        <div class="kpis">${s1 ? stat('Retorno 1 año', sgn(s1.ret), 'SPY ' + sgn(s1.spy)) + stat('Volatilidad anual', fmt(s1.vol) + '%', 'SPY ' + fmt(s1.volSpy) + '%') + stat('Peor caída 1 año', fmt(s1.mdd) + '%', 'SPY ' + fmt(s1.mddSpy) + '%') + stat('Beta vs SPY', fmt(s1.beta, 2)) : ''}
+          ${s2 ? stat('Retorno 2 años', sgn(s2.ret), 'SPY ' + sgn(s2.spy)) : ''}${stat('Dividend yield', yld.w ? (yld.s / yld.w).toFixed(2) + '%' : '—')}${stat('Upside promedio', upv.w ? sgn(upv.s / upv.w) : '—', 'a precio justo / consenso')}</div>
+        ${curve(s1)}
+        <p class="muted" style="font-size:12px">Ojo: el backtest usa las acciones elegidas hoy hacia atrás (sesgo de selección). Sirve para ver riesgo y correlación, no como promesa de retorno.</p></div>
+    </div>
+    ${saved.length ? `<h4 style="margin:18px 0 6px">Carteras guardadas</h4>${saved.map((sv, i) => savedCard(sv, i)).join('')}` : ''}`;
+  el.querySelectorAll('[data-pf]').forEach((b) => (b.onclick = () => { PF.profile = b.dataset.pf; localStorage.setItem(KEY + ':pf', PF.profile); renderPortfolios(); }));
+  $('#pfw', el).onchange = (e) => { PF.weighting = e.target.value; localStorage.setItem(KEY + ':pfw', PF.weighting); renderPortfolios(); };
+  el.querySelectorAll('tr[data-s]').forEach((tr) => (tr.onclick = () => openDrawer(tr.dataset.s)));
+  $('#pfSave', el).onclick = () => {
+    const name = prompt('Nombre de la cartera', `${P.label} ${new Date().toLocaleDateString('es-AR')}`); if (!name) return;
+    S.portfolios = [...(S.portfolios || []), { id: uid(), name, profile: PF.profile, date: new Date().toISOString().slice(0, 10), spy: DATA.symbols.SPY?.prices?.close.at(-1), positions: picks.map((x) => ({ sym: x.r.ticker.symbol, w: +x.w.toFixed(2), price: x.r.t.price })) }];
+    save(); renderPortfolios(); toast('Cartera guardada');
+  };
+  el.querySelectorAll('[data-pfdel]').forEach((b) => (b.onclick = () => { if (!confirm('¿Borrar esta cartera guardada?')) return; S.portfolios.splice(+b.dataset.pfdel, 1); save(); renderPortfolios(); }));
+}
+
+function savedCard(sv, i) {
+  let ret = 0; const rows = sv.positions.map((p) => {
+    const r = RESULTS.find((x) => x.ticker.symbol === p.sym && !x.error);
+    const cur = r?.t.price ?? DATA.symbols[p.sym]?.prices?.close.at(-1);
+    const chg = cur && p.price ? (cur / p.price - 1) * 100 : null; if (chg != null) ret += (p.w / 100) * chg;
+    const flag = !r ? 'sin datos' : r.rankG > 2 ? `bajó al #${r.rankG} de su sector` : r.score < 40 ? `score ${r.score}` : '';
+    return `<tr data-s="${p.sym}"><td><b>${p.sym}</b></td><td class="num">${p.w.toFixed(1)}%</td><td class="num ${chg > 0 ? 'pos' : chg < 0 ? 'neg' : ''}">${chg == null ? '—' : sgn(chg)}</td><td class="num">${r ? r.score : '—'}</td><td>${flag ? `<span class="chip n">⟳ ${esc(flag)}</span>` : ''}</td></tr>`;
+  }).join('');
+  const spyNow = DATA.symbols.SPY?.prices?.close.at(-1); const spyRet = sv.spy && spyNow ? (spyNow / sv.spy - 1) * 100 : null;
+  return `<div class="card" style="margin-bottom:10px"><div class="row spread"><b>${esc(sv.name)}</b><span class="muted">desde ${sv.date} · cartera <b class="${ret >= 0 ? 'pos' : 'neg'}">${sgn(ret)}</b> vs SPY ${sgn(spyRet)}</span><button class="sm danger" data-pfdel="${i}">Borrar</button></div>
+    <table class="tgt"><thead><tr><th>Ticker</th><th style="text-align:right">Peso</th><th style="text-align:right">Desde que la guardaste</th><th style="text-align:right">Score hoy</th><th>Rotación</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
