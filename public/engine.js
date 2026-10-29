@@ -165,11 +165,31 @@ export function detectPatterns(high, low, close) {
   return out;
 }
 
+// Directriz bajista: une máximos decrecientes recientes; devuelve si el precio la rompió hacia arriba
+function downtrendBreak(high, close, lookback = 100) {
+  const n = close.length; if (n < 40) return null;
+  const pv = pivots(high, 3, 'high', Math.max(3, n - lookback)).filter((i) => i < n - 3);
+  if (pv.length < 2) return null;
+  // toma la secuencia más reciente de máximos decrecientes
+  const seq = [pv.at(-1)];
+  for (let k = pv.length - 2; k >= 0 && seq.length < 4; k--) if (high[pv[k]] > high[seq[0]] * 1.01) seq.unshift(pv[k]);
+  if (seq.length < 2 || seq.at(-1) - seq[0] < 12) return null;
+  const a = seq[0], b = seq.at(-1);
+  const m = (high[b] - high[a]) / (b - a); if (m >= 0) return null;
+  const line = (i) => high[a] + m * (i - a);
+  // no tiene que haber cerrado arriba de la línea entre los pivotes (si no, no es directriz válida)
+  for (let i = a + 1; i < b; i++) if (close[i] > line(i) * 1.01) return null;
+  let crossAgo = -1;
+  for (let i = n - 1; i > b && i >= n - 10; i--) if (close[i] > line(i) && close[i - 1] <= line(i - 1)) { crossAgo = n - 1 - i; break; }
+  const dist = (close[n - 1] / line(n - 1) - 1) * 100;
+  return { crossAgo, dist, from: a, to: b, touches: seq.length };
+}
+
 export function technicals(p, benchP) {
   const close = p.close, n = close.length;
   const t = { close, high: p.high, low: p.low, dates: p.dates };
   t.price = close.at(-1);
-  t.ema50 = ema(close, 50); t.ema200 = ema(close, 200);
+  t.ema20 = ema(close, 20); t.ema50 = ema(close, 50); t.ema200 = ema(close, 200);
   t.rsi = rsi(close); const m = macd(close); t.macd = m.line; t.macdSig = m.signal;
   t.e50 = t.ema50.at(-1); t.e200 = t.ema200.at(-1); t.rsiNow = t.rsi.at(-1);
   t.d50 = t.e50 ? (t.price / t.e50 - 1) * 100 : null;
@@ -189,6 +209,8 @@ export function technicals(p, benchP) {
   }
   t.crossed = (a, b, days, dir) => crossedWithin(a, b, days, dir);
   t.div = (kind, lb, rc) => divergence(t, kind, lb, rc);
+  let tl = null;
+  Object.defineProperty(t, 'downtrend', { get: () => (tl ||= downtrendBreak(p.high, close)) });
   let pats = null;
   Object.defineProperty(t, 'patterns', { get: () => (pats ||= detectPatterns(p.high, p.low, close)) });
   return t;
@@ -232,11 +254,38 @@ export const RULES = {
     eval: (t, f, c, p) => { if (!t.benchRet) return { met: null, val: 'sin benchmark' }; const d = t.ret(p.dias) - t.benchRet(p.dias); return isFinite(d) ? { met: d > p.margen, val: pct(d) } : { met: null, val: '—' }; } },
 
   // ── Técnicas · GATILLO (momento de entrada)
-  ema200_touch: { cat: 'tec', sub: 'trig', pol: 1, w: 1, tg: 1, label: 'Tocando EMA200', p: { banda: 2 }, hint: 'precio a ±banda% de la EMA200',
+  soporte_din: { cat: 'tec', sub: 'trig', pol: 1, w: 3, tg: 1, label: 'En soporte dinámico', p: { banda: 2 }, hint: 'apoya en EMA50 o EMA200 (subiendo) en las últimas 3 ruedas y cierra arriba',
+    eval: (t, f, c, p) => {
+      const n = t.close.length; const best = [];
+      for (const [nm, e] of [['EMA50', t.ema50], ['EMA200', t.ema200]]) {
+        const v = e[n - 1], v10 = e[n - 11]; if (v == null || v10 == null || v <= v10) continue; // media plana o bajando: no es soporte
+        if (nm !== 'EMA200' && (t.d200 ?? -1) <= 0) continue; // soportes cortos solo dentro de tendencia alcista
+        const touched = [1, 2, 3].some((k) => t.low[n - k] <= e[n - k] * (1 + p.banda / 100));
+        const holds = t.close[n - 1] >= v * 0.995;
+        if (touched && holds) best.push({ nm, d: (t.close[n - 1] / v - 1) * 100 });
+      }
+      if (!best.length) return { met: false, val: '—' };
+      const b = best[0];
+      return { met: true, val: `${best.map((x) => x.nm).join(' / ')} (${pct(b.d)})`, frac: 0.8 + 0.2 * clamp(1 - Math.abs(b.d) / p.banda) };
+    } },
+  pullback: { cat: 'tec', sub: 'trig', pol: 1, w: 3, tg: 1, label: 'Retroceso en tendencia', p: { min: 5, max: 15 }, hint: 'cae min–max% desde el máximo de 20 ruedas sin perder EMA200 ni el cruce 50/200',
+    eval: (t, f, c, p) => {
+      const n = t.close.length; const hi = Math.max(...t.high.slice(-20)); const dd = (t.price / hi - 1) * 100;
+      const trend = (t.d200 ?? -1) > 0 && t.e50 > t.e200;
+      const ok = trend && -dd >= p.min && -dd <= p.max && (t.rsiNow ?? 50) < 60;
+      return { met: ok, val: `${pct(dd)} desde máx. 20d${trend ? '' : ' (sin tendencia)'}`, frac: ok ? 0.8 + 0.2 * clamp(1 - Math.abs(-dd - (p.min + p.max) / 2) / ((p.max - p.min) / 2)) : 0 };
+    } },
+  rompe_directriz: { cat: 'tec', sub: 'trig', pol: 1, w: 3, tg: 1, label: 'Rompe directriz bajista', p: { dias: 5, max: 8 }, hint: 'cierra arriba de la línea de máximos decrecientes en las últimas N ruedas, sin alejarse más de max%',
+    eval: (t, f, c, p) => {
+      const d = t.downtrend; if (!d) return { met: false, val: 'sin directriz' };
+      const ok = d.crossAgo >= 0 && d.crossAgo < p.dias && d.dist <= p.max;
+      return { met: ok, val: d.crossAgo >= 0 ? `hace ${d.crossAgo}d, ${pct(d.dist)} sobre la línea (${d.touches} toques)` : `${pct(d.dist)} vs directriz`, frac: ok ? 0.8 + 0.2 * clamp(1 - d.dist / p.max) : 0 };
+    } },
+  ema200_touch: { cat: 'tec', sub: 'trig', pol: 1, w: 1, tg: 1, off: 1, label: 'Tocando EMA200', p: { banda: 2 }, hint: 'precio a ±banda% de la EMA200',
     eval: (t, f, c, p) => ({ met: t.d200 == null ? null : Math.abs(t.d200) <= p.banda, val: pct(t.d200) }) },
   ema200_cross: { cat: 'tec', sub: 'trig', pol: 1, w: 1, tg: 1, label: 'Supera EMA200', p: { dias: 5 }, hint: 'cruce alcista en las últimas N ruedas',
     eval: (t, f, c, p) => { const d = t.crossed(t.close, t.ema200, p.dias, 1); return { met: d >= 0, val: d >= 0 ? `hace ${d}d` : pct(t.d200) }; } },
-  ema50_touch: { cat: 'tec', sub: 'trig', pol: 1, w: 1, label: 'Pullback a EMA50', p: { banda: 1.5 }, hint: 'toca la EMA50 estando arriba de la EMA200',
+  ema50_touch: { cat: 'tec', sub: 'trig', pol: 1, w: 1, off: 1, label: 'Pullback a EMA50', p: { banda: 1.5 }, hint: 'toca la EMA50 estando arriba de la EMA200',
     eval: (t, f, c, p) => ({ met: t.d50 == null ? null : Math.abs(t.d50) <= p.banda && (t.d200 ?? -1) > 0, val: pct(t.d50) }) },
   ema50_cross: { cat: 'tec', sub: 'trig', pol: 1, w: 1, label: 'Supera EMA50', p: { dias: 5 },
     eval: (t, f, c, p) => { const d = t.crossed(t.close, t.ema50, p.dias, 1); return { met: d >= 0, val: d >= 0 ? `hace ${d}d` : pct(t.d50) }; } },
@@ -262,7 +311,9 @@ export const RULES = {
     eval: (t, f, c, p) => { const d = t.crossed(t.macd, t.macdSig, p.dias, -1); return { met: d >= 0, val: d >= 0 ? `hace ${d}d` : '—' }; } },
   rs_weak: { cat: 'tec', pol: -1, w: 0, label: 'Pierde vs benchmark', p: { dias: 63, margen: 10 }, hint: 'queda atrás más de margen%',
     eval: (t, f, c, p) => { if (!t.benchRet) return { met: null, val: 'sin benchmark' }; const d = t.ret(p.dias) - t.benchRet(p.dias); return { met: isFinite(d) ? d < -p.margen : null, val: pct(d) }; } },
-  stretched: { cat: 'tec', pol: -1, w: 0, label: 'Estirada vs EMA200', p: { max: 40 }, hint: 'precio más de max% arriba de la EMA200',
+  lejos_medias: { cat: 'tec', pol: -1, w: 3, tg: 1, label: 'Volada de las medias', p: { ema50: 10, ema200: 25 }, hint: 'precio más de X% arriba de la EMA50 o de la EMA200: mala zona de entrada',
+    eval: (t, f, c, p) => { if (t.d50 == null || t.d200 == null) return { met: null, val: '—' }; return { met: t.d50 > p.ema50 || t.d200 > p.ema200, val: `${pct(t.d50)} EMA50 · ${pct(t.d200)} EMA200` }; } },
+  stretched: { cat: 'tec', pol: -1, w: 0, off: 1, label: 'Estirada vs EMA200', p: { max: 40 }, hint: 'precio más de max% arriba de la EMA200',
     eval: (t, f, c, p) => ({ met: t.d200 == null ? null : t.d200 > p.max, val: pct(t.d200) }) },
   pattern_bear: { cat: 'tec', pol: -1, w: 1, tg: 1, label: 'Figura bajista', p: {}, hint: 'HCH, bandera bajista, doble techo, triángulo descendente',
     eval: (t) => { const ps = t.patterns.filter((x) => x.dir < 0); return { met: ps.length > 0, val: ps.map((x) => `${x.name} (${x.stage})`).join(', ') || '—' }; } },
@@ -362,10 +413,10 @@ export function defaultRules() {
 }
 
 // Evalúa un ticker contra las reglas de su grupo. Scores 0–100, pensados para comparar DENTRO del grupo.
-//   AT = 60% Tendencia + 40% Gatillo − negativas    ·    AF = puntaje gradual ponderado − negativas
+//   AT = 50% Tendencia + 50% Gatillo − negativas · Total = 70% AF + 30% AT (configurable)    ·    AF = puntaje gradual ponderado − negativas
 //   Los datos faltantes cuentan como 0 (salvo reglas opcionales) y bajan la "cobertura".
-const TRIG_FULL = 5; // con 5 puntos de gatillos activos el gatillo está al 100%
-export function scoreTicker(ticker, group, data, benchData) {
+const TRIG_FULL = 6; // con 6 puntos de gatillos activos (ej. soporte + retroceso) el gatillo está al 100%
+export function scoreTicker(ticker, group, data, benchData, opts = {}) {
   if (!data?.prices?.close?.length) return { error: data?.error || 'sin datos' };
   const t = technicals(data.prices, benchData?.prices);
   const auto = data.fund && !data.fund.error ? data.fund : {};
@@ -399,13 +450,14 @@ export function scoreTicker(ticker, group, data, benchData) {
   }
   const trend = acc.trend.max ? acc.trend.got / acc.trend.max : 0;
   const trig = Math.min(1, acc.trig.got / TRIG_FULL);
-  const at = Math.max(0, Math.min(100, 100 * (0.6 * trend + 0.4 * trig) - (100 * acc.tecNeg) / ((acc.trend.max || 10) + TRIG_FULL)));
+  const at = Math.max(0, Math.min(100, 100 * (0.5 * trend + 0.5 * trig) - (100 * acc.tecNeg) / ((acc.trend.max || 10) + TRIG_FULL)));
   const hasAF = acc.fun.max > 0;
   const af = hasAF ? Math.max(0, Math.min(100, (100 * (acc.fun.got - acc.funNeg)) / acc.fun.max)) : null;
   const R = (x) => Math.round(x);
   const tec = { score: R(at), trend: R(trend * 100), trig: R(trig * 100), metPos: metT, totPos: totT, neg: acc.tecNeg, coverage: acc.trend.max ? R((100 * acc.trend.have) / acc.trend.max) : 0, pct: at / 100 };
   const fun = { score: hasAF ? R(af) : null, metPos: metF, totPos: totF, neg: acc.funNeg, coverage: hasAF ? R((100 * acc.fun.have) / acc.fun.max) : null, pct: hasAF ? af / 100 : 0 };
-  const total = hasAF ? R(0.5 * at + 0.5 * af) : R(at);
+  const afW = opts.afWeight ?? 0.7; // el Total pondera más el fundamental
+  const total = hasAF ? R(afW * af + (1 - afW) * at) : R(at);
   return { t, f, targets, rules: res, tec, fun, score: total, pct: total / 100, metPos: metT + metF, totPos: totT + totF, hasAF };
 }
 

@@ -106,7 +106,7 @@ function evaluate() {
   MARKET = evalMarket(S.market, DATA.symbols.SPY, DATA.symbols['^VIX']);
   RESULTS = S.tickers.map((t) => {
     const g = groupOf(t);
-    const r = scoreTicker(t, g, DATA.symbols[t.symbol], g.benchmark ? DATA.symbols[g.benchmark.toUpperCase()] : null);
+    const r = scoreTicker(t, g, DATA.symbols[t.symbol], g.benchmark ? DATA.symbols[g.benchmark.toUpperCase()] : null, { afWeight: (S.afWeight ?? 70) / 100 });
     return { ticker: t, group: g, ...r };
   });
   sortResults();
@@ -185,7 +185,7 @@ function renderRanking() {
     <div class="row spread" style="margin-top:10px">
       <div class="row"><span class="muted">Ordenar por</span>${sortBtn('total', 'Total')}${sortBtn('tec', 'Técnico (AT)')}${sortBtn('fun', 'Fundamental (AF)')}
         <button class="sm ${SEL.size >= 2 ? 'primary' : ''}" id="cmpBtn" ${SEL.size >= 2 ? '' : 'disabled'}>Comparar ${SEL.size ? `(${SEL.size})` : ''}</button>${SEL.size ? '<button class="sm ghost" id="cmpClr">Limpiar</button>' : ''}</div>
-      <span class="muted">Scores 0–100 relativos a su grupo · AT = 60% tendencia + 40% gatillo · AF ponderado por métricas del tipo de empresa</span>
+      <span class="muted">Scores 0–100 relativos a su grupo · Total = ${S.afWeight ?? 70}% AF + ${100 - (S.afWeight ?? 70)}% AT · AT = 50% tendencia + 50% gatillo (soporte, retroceso, ruptura de directriz)</span>
     </div>
     ${groups.map((g) => {
       const rows = RESULTS.filter((r) => r.group.id === g.id);
@@ -388,6 +388,8 @@ function renderSettings() {
   el.innerHTML = `<div class="grid">
     <div class="card"><h3>Alertas generales de mercado</h3><div class="rules" id="mk"></div></div>
     <div class="card"><h3>Avisos (Telegram y mail)</h3><div id="tgBox" class="muted" style="margin-top:8px">${SERVER.ok ? 'Revisando…' : 'Iniciá sesión para configurarlo.'}</div></div>
+    <div class="card"><h3>Peso del score total</h3>
+      <div class="row" style="margin-top:8px"><label>Fundamental (AF) <input type="range" id="afw" min="0" max="100" step="5" value="${S.afWeight ?? 70}" style="width:200px"> <b id="afwv">${S.afWeight ?? 70}% AF · ${100 - (S.afWeight ?? 70)}% AT</b></label></div></div>
     <div class="card"><h3>Puntaje mínimo para alertar</h3>
       <p class="muted">Una señal positiva de un ticker solo genera alerta (en la página, mail y Telegram) si su score de esa categoría supera el mínimo. Así te llegan solo las que valen la pena.</p>
       <div class="row"><label>Técnicas: AT ≥ <input type="number" step="5" id="amAT" value="${S.alertMin.at ?? ''}"></label>
@@ -414,6 +416,8 @@ function renderSettings() {
     mk.appendChild(row);
   }
   if (SERVER.ok) loadTg();
+  $('#afw', el).oninput = (e) => { $('#afwv', el).textContent = `${e.target.value}% AF · ${100 - e.target.value}% AT`; };
+  $('#afw', el).onchange = (e) => { S.afWeight = +e.target.value; save(); evaluate(); render(); toast('Peso del total actualizado'); };
   const am = () => { S.alertMin = { at: $('#amAT', el).value === '' ? null : +$('#amAT', el).value, af: $('#amAF', el).value === '' ? null : +$('#amAF', el).value, negAlways: $('#amNeg', el).checked }; save(); toast('Puntaje mínimo guardado'); };
   ['#amAT', '#amAF', '#amNeg'].forEach((q) => ($(q, el).onchange = am));
   $('#rf', el).onchange = (e) => { S.refreshMin = Math.max(5, +e.target.value || 15); save(); schedule(); };
@@ -897,7 +901,7 @@ function renderSectors() {
         ${atL !== best ? `<span data-s="${atL.ticker.symbol}" title="líder técnico">AT↑ ${atL.ticker.symbol}</span>` : ''}${afL !== best && afL.fun.score != null ? `<span data-s="${afL.ticker.symbol}" title="líder fundamental">AF↑ ${afL.ticker.symbol}</span>` : ''}</div>
     </div>`;
   }).join('');
-  el.innerHTML = `<div class="row spread"><span class="muted">La #1 de cada sector por score total (50% AT + 50% AF), comparada solo contra su grupo. Tocá una acción para ver por qué.</span></div>
+  el.innerHTML = `<div class="row spread"><span class="muted">La #1 de cada sector por score total (${S.afWeight ?? 70}% AF + ${100 - (S.afWeight ?? 70)}% AT), comparada solo contra su grupo. Tocá una acción para ver por qué.</span></div>
     <div class="sec-grid">${cards}</div>`;
   el.querySelectorAll('[data-s]').forEach((d) => (d.onclick = (e) => { e.stopPropagation(); openDrawer(d.dataset.s); }));
 }
