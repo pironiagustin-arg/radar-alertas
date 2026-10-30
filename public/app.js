@@ -145,7 +145,7 @@ function detectAlerts() {
 
 // ───────────────────────── Render ─────────────────────────
 function render() {
-  renderMarket(); renderSectors(); renderRanking(); renderPortfolios(); renderGroups(); renderAlerts(); renderSettings(); renderIA(); renderTesis();
+  renderMarket(); renderSummary(); renderSectors(); renderRanking(); renderPortfolios(); renderGroups(); renderAlerts(); renderSettings(); renderIA(); renderTesis();
   if (openSym) renderDrawer(openSym);
   $('#alertCount').textContent = unseen || '';
 }
@@ -571,7 +571,7 @@ $('#btnNotif').onclick = async () => {
   if (!('Notification' in window)) return toast('Este navegador no soporta notificaciones');
   const p = await Notification.requestPermission(); toast(p === 'granted' ? 'Notificaciones activadas' : 'Notificaciones bloqueadas');
 };
-let timer; function schedule() { clearInterval(timer); timer = setInterval(() => refresh(), S.refreshMin * 60 * 1000); }
+let timer; function schedule() { clearInterval(timer); timer = setInterval(() => { if (marketStatus().open) refresh(); }, S.refreshMin * 60 * 1000); }
 render(); refresh(); schedule(); connect();
 
 
@@ -1018,4 +1018,81 @@ function savedCard(sv, i) {
   const spyNow = DATA.symbols.SPY?.prices?.close.at(-1); const spyRet = sv.spy && spyNow ? (spyNow / sv.spy - 1) * 100 : null;
   return `<div class="card" style="margin-bottom:10px"><div class="row spread"><b>${esc(sv.name)}</b><span class="muted">desde ${sv.date} · cartera <b class="${ret >= 0 ? 'pos' : 'neg'}">${sgn(ret)}</b> vs SPY ${sgn(spyRet)}</span><button class="sm danger" data-pfdel="${i}">Borrar</button></div>
     <table class="tgt"><thead><tr><th>Ticker</th><th style="text-align:right">Peso</th><th style="text-align:right">Desde que la guardaste</th><th style="text-align:right">Score hoy</th><th>Rotación</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+
+// ───────────────────────── Resumen: qué mirar hoy ─────────────────────────
+function marketStatus(now = new Date()) {
+  const ny = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day = ny.getDay(), mins = ny.getHours() * 60 + ny.getMinutes();
+  const open = day >= 1 && day <= 5 && mins >= 570 && mins < 960;
+  const ar = (h, m) => { const d = new Date(ny); d.setHours(h, m, 0, 0); const diff = d - ny; return new Date(now.getTime() + diff).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }); };
+  return { open, label: open ? `Mercado abierto · cierra ${ar(16, 0)} (hora AR)` : day === 0 || day === 6 ? 'Mercado cerrado (fin de semana)' : mins < 570 ? `Mercado cerrado · abre ${ar(9, 30)} (hora AR)` : 'Mercado cerrado hasta mañana' };
+}
+const TRIG_IDS = ['soporte_din', 'pullback', 'rompe_directriz', 'rsi_low', 'pattern_bull', 'div_bull'];
+const RISK_IDS = ['over_fair', 'pattern_bear', 'ema200_lost', 'death_cross', 'eps_rev_down', 'miss', 'target_hit', 'lejos_medias', 'dilution'];
+let PREV = null, SETUP = null;
+async function loadPrev() {
+  if (PREV || !SERVER.ok) return;
+  const since = new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10);
+  try {
+    const { rows } = await api('/api/history?since=' + since);
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+    const days = [...new Set(rows.map((r) => r.d))].filter((d) => d < today).sort();
+    const ref = days.at(-1);
+    PREV = { d: ref, map: Object.fromEntries(rows.filter((r) => r.d === ref).map((r) => [r.symbol, r])) };
+  } catch { PREV = { d: null, map: {} }; }
+  try { SETUP = await api('/api/setup'); } catch {}
+  renderSummary();
+}
+
+function renderSummary() {
+  const el = $('#tab-resumen');
+  if (!RESULTS.length) { el.innerHTML = '<div class="muted">Cargando datos de mercado…</div>'; return; }
+  if (!PREV && SERVER.ok) loadPrev();
+  const ok = RESULTS.filter((r) => !r.error);
+  const has = (r, ids) => r.rules.filter((x) => ids.includes(x.id) && x.met && x.w > 0);
+  const opp = ok.filter((r) => (r.fun.score ?? 0) >= 60 && has(r, TRIG_IDS).length && !has(r, ['lejos_medias', 'over_fair', 'pattern_bear']).length).sort((a, b) => b.score - a.score).slice(0, 8);
+  const wait = ok.filter((r) => (r.fun.score ?? 0) >= 70 && !has(r, TRIG_IDS).length && !opp.includes(r)).sort((a, b) => b.fun.score - a.fun.score).slice(0, 8);
+  const risk = ok.map((r) => ({ r, xs: has(r, RISK_IDS) })).filter((x) => x.xs.length).sort((a, b) => b.xs.reduce((s, x) => s + x.w, 0) - a.xs.reduce((s, x) => s + x.w, 0)).slice(0, 8);
+  const ms = marketStatus();
+  const mv = PREV?.d ? ok.map((r) => ({ r, p: PREV.map[r.ticker.symbol] })).filter((x) => x.p?.total != null).map((x) => ({ ...x, dT: x.r.score - x.p.total })) : [];
+  const up = [...mv].sort((a, b) => b.dT - a.dT).filter((x) => x.dT >= 3).slice(0, 5), down = [...mv].sort((a, b) => a.dT - b.dT).filter((x) => x.dT <= -3).slice(0, 5);
+  const newTop = PREV?.d ? S.groups.map((g) => {
+    const rs = ok.filter((r) => r.group.id === g.id); if (!rs.length) return null;
+    const best = [...rs].sort((a, b) => b.score - a.score)[0];
+    const prevBest = rs.filter((r) => PREV.map[r.ticker.symbol]?.total != null).sort((a, b) => PREV.map[b.ticker.symbol].total - PREV.map[a.ticker.symbol].total)[0];
+    return prevBest && prevBest !== best ? { g, best, prevBest } : null;
+  }).filter(Boolean) : [];
+  const item = (r, extra) => `<div class="sitem" data-s="${r.ticker.symbol}"><b>${r.ticker.symbol}</b><span class="gtag" style="border-left-color:${r.group.color}">${esc(r.group.name)}</span>
+    <span class="sn"><span class="${scls(r.score)}">${r.score}</span><small>AF ${r.fun.score ?? '—'} · AT ${r.tec.score}</small></span><div class="sx">${extra}</div></div>`;
+  const trigTxt = (r) => has(r, TRIG_IDS).map((x) => x.id === 'pattern_bull' ? String(x.val).split(',')[0] : x.label).join(' · ');
+  const upTxt = (r) => { const u = r.rules.find((x) => x.id === 'upside'); return u && u.met != null ? `upside ${String(u.val).split(' a ')[0]}` : ''; };
+  const notif = SETUP ? (SETUP.email || SETUP.chatVinculado ? `<span class="pos">✔ avisos activos (${[SETUP.email && 'mail', SETUP.chatVinculado && 'Telegram'].filter(Boolean).join(' + ')})</span>` : '<span class="neg">✘ los avisos automáticos no te llegan: configurá mail o Telegram en Ajustes</span>') : '';
+  el.innerHTML = `
+    <div class="card statusbar"><span class="dot ${ms.open ? 'on' : ''}"></span><b>${ms.label}</b>
+      <span class="muted">· Datos de ${DATA.asOf ? new Date(DATA.asOf).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '—'}${ms.open ? ` · se actualiza cada ${S.refreshMin} min` : ' · precios de cierre'} · el servidor escanea cada 30 min en horario de mercado</span> ${notif}</div>
+    <div class="grid sumgrid">
+      <div class="card"><h3>🎯 Oportunidades de entrada <span class="muted">(${opp.length})</span></h3><p class="muted">Buen fundamental (AF ≥ 60) + gatillo técnico activo, sin estar volada ni sobre su precio justo.</p>
+        ${opp.map((r) => item(r, `<span class="pos">${esc(trigTxt(r))}</span> <span class="muted">${esc(upTxt(r))}</span>`)).join('') || '<div class="muted">Ninguna hoy.</div>'}</div>
+      <div class="card"><h3>⏳ En espera de entrada <span class="muted">(${wait.length})</span></h3><p class="muted">Muy buen fundamental (AF ≥ 70) pero sin gatillo: vigilarlas para un soporte o retroceso.</p>
+        ${wait.map((r) => item(r, `<span class="muted">${r.t.d50 != null ? `${sgn(r.t.d50)} vs EMA50 · ${sgn(r.t.d200)} vs EMA200` : ''} ${esc(upTxt(r))}</span>`)).join('') || '<div class="muted">Ninguna.</div>'}</div>
+      <div class="card"><h3>⚠️ Riesgos activos</h3><p class="muted">Negativas importantes: arriba del precio justo, figura bajista, pierde EMA200, recortes de EPS, volada.</p>
+        ${risk.map(({ r, xs }) => item(r, `<span class="neg">${esc(xs.map((x) => x.id === 'pattern_bear' ? String(x.val).split(',')[0] : x.label).join(' · '))}</span>`)).join('') || '<div class="muted">Sin riesgos marcados.</div>'}</div>
+      <div class="card"><h3>📈 Qué cambió ${PREV?.d ? `<span class="muted">vs ${PREV.d.split('-').reverse().slice(0, 2).join('/')}</span>` : ''}</h3>
+        ${!SERVER.ok ? '<p class="muted">Iniciá sesión para ver la comparación con el día anterior.</p>' : !PREV ? '<p class="muted">Cargando…</p>' : !PREV.d ? '<p class="muted">Todavía no hay un día anterior guardado.</p>' : `
+        ${newTop.length ? `<p class="muted" style="margin:4px 0">Nuevo líder de sector:</p>${newTop.map((x) => `<div class="sitem" data-s="${x.best.ticker.symbol}"><b>${x.best.ticker.symbol}</b><span class="muted">pasa a #1 en ${esc(x.g.name)} (antes ${x.prevBest.ticker.symbol})</span></div>`).join('')}` : ''}
+        <div class="movers"><div><p class="muted">Suben</p>${up.map((x) => `<div class="mv" data-s="${x.r.ticker.symbol}"><b>${x.r.ticker.symbol}</b> <span class="pos">+${x.dT}</span> <span class="muted">${x.p.total}→${x.r.score}</span></div>`).join('') || '<span class="muted">—</span>'}</div>
+          <div><p class="muted">Bajan</p>${down.map((x) => `<div class="mv" data-s="${x.r.ticker.symbol}"><b>${x.r.ticker.symbol}</b> <span class="neg">${x.dT}</span> <span class="muted">${x.p.total}→${x.r.score}</span></div>`).join('') || '<span class="muted">—</span>'}</div></div>`}</div>
+    </div>
+    <details class="card howto"><summary><b>¿Cómo leer los números?</b></summary>
+      <ul>
+        <li><b>Todos los scores van de 0 a 100 y solo se comparan dentro del mismo grupo.</b> Un 70 en Bancos y un 70 en Semis no son comparables entre sí.</li>
+        <li><b>AF (fundamental)</b>: qué tan bien cumple las métricas de su tipo de empresa (ej. yield y payout en defensivas; Regla del 40 en software) + upside a tu precio justo. Si falta un dato resta, y aparece la <span class="cov">cobertura</span> en amarillo.</li>
+        <li><b>AT (técnico)</b> = 50% <b>tendencia</b> (arriba de la EMA200, pendiente, medias alineadas, fuerza vs su benchmark) + 50% <b>gatillo</b> (soporte dinámico, retroceso sin perder tendencia, ruptura de directriz bajista, RSI bajo, figuras). Resta si está volada de las medias.</li>
+        <li><b>Total</b> = ${S.afWeight ?? 70}% AF + ${100 - (S.afWeight ?? 70)}% AT. Colores: <span class="pos">verde ≥ 70</span>, <span class="mid">amarillo 45–69</span>, <span class="neg">rojo &lt; 45</span>.</li>
+        <li><b>Upside</b>: distancia a tu precio justo (de tus tesis o cargado en la ficha). Si no hay, usa el consenso de analistas y lo indica.</li>
+        <li><b>Flujo sugerido</b>: el AF elige <i>qué</i> comprar; el AT dice <i>cuándo</i>. Las "Oportunidades" son las que tienen las dos cosas hoy.</li>
+      </ul></details>`;
+  el.querySelectorAll('[data-s]').forEach((d) => (d.onclick = () => openDrawer(d.dataset.s)));
 }
